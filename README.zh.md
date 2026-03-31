@@ -73,16 +73,18 @@ cronly list
 
 ```bash
 # 从 npm 安装
-npm install -g cronly
+npm install -g @fureweb/cronly
 
 # 无需安装直接使用
-npx cronly
+npx @fureweb/cronly
 
 # 本地开发
 git clone https://github.com/fureweb-com/cronly.git
 cd cronly
 npm link
 ```
+
+全局安装后，运行命令仍然是 `cronly`。
 
 ## 使用方法
 

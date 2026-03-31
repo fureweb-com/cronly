@@ -1,5 +1,5 @@
 {
-  "name": "cronly",
+  "name": "@fureweb/cronly",
   "version": "1.0.0",
   "description": "Schedule JavaScript scripts for everyday jobs, with cron expressions when you need them.",
   "type": "module",
@@ -9,6 +9,9 @@
   ],
   "bin": {
     "cronly": "./bin/cronly.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "test": "node test/test.mjs",

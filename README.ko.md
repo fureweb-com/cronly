@@ -73,16 +73,18 @@ cronly list
 
 ```bash
 # npm에서 설치
-npm install -g cronly
+npm install -g @fureweb/cronly
 
 # 설치 없이 사용
-npx cronly
+npx @fureweb/cronly
 
 # 로컬 개발
 git clone https://github.com/fureweb-com/cronly.git
 cd cronly
 npm link
 ```
+
+전역 설치 후 실행 명령은 `cronly`예요.
 
 ## 사용법
 

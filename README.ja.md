@@ -73,16 +73,18 @@ cronly list
 
 ```bash
 # npm からインストール
-npm install -g cronly
+npm install -g @fureweb/cronly
 
 # インストールせずに使用
-npx cronly
+npx @fureweb/cronly
 
 # ローカル開発
 git clone https://github.com/fureweb-com/cronly.git
 cd cronly
 npm link
 ```
+
+グローバルインストール後の実行コマンドは `cronly` です。
 
 ## 使い方
 

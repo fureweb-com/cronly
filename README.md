@@ -73,16 +73,18 @@ Managing crontab manually with `crontab -e` leads to common problems:
 
 ```bash
 # From npm
-npm install -g cronly
+npm install -g @fureweb/cronly
 
 # Or use without installing
-npx cronly
+npx @fureweb/cronly
 
 # Local development
 git clone https://github.com/fureweb-com/cronly.git
 cd cronly
 npm link
 ```
+
+After installing globally, run the CLI as `cronly`.
 
 ## Usage
 
