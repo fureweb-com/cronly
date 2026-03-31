@@ -1,26 +1,43 @@
-# crontab-agent
+# Cronly
 
-`crontab -e`를 직접 열지 않고 스크립트를 cron 일정에 올리는 도구예요.
-파일 하나를 등록하고, 지금 뭐가 등록되어 있는지 확인하고, 나중에 필요 없으면 다시 지울 수 있어요.
+스크립트를 쉽게 예약 실행해요 — cron 문법을 몰라도 돼요.
+매일 8시, 평일 9시, 4시간마다처럼 원하는 일정을 그대로 말하면 돼요.
+필요하면 cron expression도 직접 쓸 수 있고, 내부적으로는 crontab에 안전하게 등록하고 관리해요.
 
 [English](./README.md) | **[한국어](./README.ko.md)** | [日本語](./README.ja.md) | [中文](./README.zh.md)
 
 ## 1분 사용 예
 
 ```bash
-# 이 스크립트를 10분마다 실행
-crontab-agent add ./report.mjs --schedule "*/10 * * * *"
+# 매일 오전 8시에 실행
+cronly add ./daily-report.mjs --daily 08:00
+# 같은 뜻의 cron expression
+cronly add ./daily-report.mjs --schedule "0 8 * * *"
+
+# 평일 오전 9시에 실행
+cronly add ./notify.mjs --weekdays --at 09:00
+# 같은 뜻의 cron expression
+cronly add ./notify.mjs --schedule "0 9 * * 1-5"
+
+# 4시간마다 실행
+cronly add ./sync.mjs --every-hours 4
+# 같은 뜻의 cron expression
+cronly add ./sync.mjs --schedule "0 */4 * * *"
+
+# 매주 토요일 0시에 실행
+cronly add ./weekly-cleanup.mjs --weekly sat --at 00:00
+# 같은 뜻의 cron expression
+cronly add ./weekly-cleanup.mjs --schedule "0 0 * * 6"
 
 # 이 도구가 관리하는 항목 확인
-crontab-agent list
-
-# 나중에 제거
-crontab-agent remove ./report.mjs
+cronly list
 ```
 
 이런 경우에 잘 맞아요:
 
-- Node.js 스크립트나 셸 스크립트를 cron으로 돌리고 싶을 때
+- `--daily`, `--weekdays`, `--every-hours` 같은 직관적인 플래그로 스크립트를 예약하고 싶을 때
+- cron 문법을 외우지 않고도 일상적인 스케줄을 설정하고 싶을 때
+- 복잡한 경우에는 cron expression을 직접 쓰고 싶을 때 (`--schedule "0 */6 * * 1-3"`)
 - 기존 crontab의 다른 항목은 건드리고 싶지 않을 때
 - 같은 파일을 다시 등록해서 스케줄만 업데이트하고 싶을 때
 
@@ -33,9 +50,9 @@ crontab-agent remove ./report.mjs
 - 등록/수정/삭제 시 다른 cron 항목을 실수로 건드림
 - 스크립트 경로 변경 시 crontab 동기화 누락
 
-**crontab-agent**는 이 문제를 해결해요:
+**Cronly**는 이 문제를 해결해요:
 
-| 수동 crontab 관리 | crontab-agent |
+| 수동 crontab 관리 | Cronly |
 |---|---|
 | 중복 등록 가능 | path 기준 자동 dedupe |
 | 다른 항목 실수로 편집 위험 | 관리 블록만 격리해서 수정 |
@@ -56,14 +73,14 @@ crontab-agent remove ./report.mjs
 
 ```bash
 # npm에서 설치
-npm install -g crontab-agent
+npm install -g cronly
 
 # 설치 없이 사용
-npx crontab-agent
+npx cronly
 
 # 로컬 개발
-git clone https://github.com/fureweb/crontab-agent.git
-cd crontab-agent
+git clone https://github.com/fureweb-com/cronly.git
+cd cronly
 npm link
 ```
 
@@ -72,33 +89,66 @@ npm link
 ### 스크립트 등록
 
 ```bash
-# .sh 파일 → 런타임 자동 추론 (sh)
-crontab-agent add ./backup.sh --schedule "0 2 * * *"
+# 매일 새벽 2시에 실행
+cronly add ./backup.sh --daily 02:00
 
-# .mjs 파일 → 런타임 자동 추론 (node)
-crontab-agent add ./report.mjs --schedule "*/10 * * * *"
+# 10분마다 실행
+cronly add ./report.mjs --every-minutes 10
+
+# 월, 수, 금 오전 9시에 실행
+cronly add ./class.mjs --days mon,wed,fri --at 09:00
+
+# 주말 오전 10시에 실행
+cronly add ./weekend-job.mjs --weekends --at 10:00
+
+# 부팅 시 1회 실행
+cronly add ./startup.sh --reboot
 
 # 런타임 명시
-crontab-agent add ./custom-binary --schedule "0 * * * *" --runtime exec
-
-# cron alias
-crontab-agent add ./startup.sh --schedule "@reboot"
+cronly add ./custom-binary --daily 08:00 --runtime exec
 ```
 
 같은 파일을 다시 `add`하면 **추가가 아닌 업데이트**로 동작해요:
 
 ```bash
 # 처음: 등록
-crontab-agent add ./backup.sh --schedule "0 2 * * *"
+cronly add ./backup.sh --daily 02:00
 
 # 다시: schedule 변경 (중복 등록 아님)
-crontab-agent add ./backup.sh --schedule "0 3 * * *"
+cronly add ./backup.sh --daily 03:00
+```
+
+### 간편 스케줄 패턴
+
+| 플래그 | 예시 | cron 변환 결과 |
+|--------|------|---------------|
+| `--daily HH:MM` | `--daily 08:00` | `0 8 * * *` |
+| `--every-hours N` | `--every-hours 4` | `0 */4 * * *` |
+| `--every-minutes N` | `--every-minutes 10` | `*/10 * * * *` |
+| `--weekly 요일 --at HH:MM` | `--weekly mon --at 10:00` | `0 10 * * 1` |
+| `--days 요일,... --at HH:MM` | `--days mon,wed,fri --at 09:00` | `0 9 * * 1,3,5` |
+| `--weekdays --at HH:MM` | `--weekdays --at 08:30` | `30 8 * * 1-5` |
+| `--weekends --at HH:MM` | `--weekends --at 10:00` | `0 10 * * 0,6` |
+| `--reboot` | `--reboot` | `@reboot` |
+
+요일 토큰: `sun`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat` (대소문자 무관)
+
+### Cron expression 직접 입력 (고급)
+
+위 패턴으로 표현하기 어려운 경우, `--schedule`로 직접 지정할 수 있어요:
+
+```bash
+# 월~수요일에 6시간마다
+cronly add ./report.mjs --schedule "0 */6 * * 1-3"
+
+# 매월 15일 오전 9시
+cronly add ./monthly.mjs --schedule "0 9 15 * *"
 ```
 
 ### 목록 조회
 
 ```bash
-crontab-agent list
+cronly list
 ```
 
 출력 예시:
@@ -111,16 +161,16 @@ crontab-agent list
 
 ```bash
 # 파일 경로로 삭제
-crontab-agent remove ./backup.sh
+cronly remove ./backup.sh
 
 # id로 삭제
-crontab-agent remove --id a1b2c3d4
+cronly remove --id a1b2c3d4
 ```
 
 ### Raw 출력
 
 ```bash
-crontab-agent print
+cronly print
 ```
 
 관리 중인 엔트리의 실제 crontab 블록을 출력해요.
@@ -128,7 +178,7 @@ crontab-agent print
 ### 환경 점검
 
 ```bash
-crontab-agent doctor
+cronly doctor
 ```
 
 Node.js 버전, `crontab` 명령 존재 여부, crontab 읽기 가능 여부를 점검해요.
@@ -146,12 +196,12 @@ Node.js 버전, `crontab` 명령 존재 여부, crontab 읽기 가능 여부를 
 # 기존 수동 항목 (건드리지 않음)
 0 * * * * /usr/bin/some-other-job
 
-# [crontab-agent:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
+# [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
 0 2 * * * '/bin/sh' '/home/user/backup.sh'
-# [crontab-agent:end] id=a1b2c3d4
+# [cronly:end] id=a1b2c3d4
 ```
 
-`# [crontab-agent:begin]` / `# [crontab-agent:end]` 블록으로 감싸서 다른 수동 항목과 완전히 격리해요.
+`# [cronly:begin]` / `# [cronly:end]` 블록으로 감싸서 다른 수동 항목과 완전히 격리해요.
 
 ## 테스트
 
@@ -162,7 +212,7 @@ npm test
 ## 프로젝트 구조
 
 ```
-├── bin/crontab-agent.mjs      # CLI 진입점
+├── bin/cronly.mjs             # CLI 진입점
 ├── lib/
 │   ├── cli.mjs                # argv 파싱, 도움말
 │   ├── commands.mjs           # add/list/remove/print/doctor 구현

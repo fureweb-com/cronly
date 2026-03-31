@@ -1,26 +1,42 @@
 {
-  "name": "crontab-agent",
+  "name": "cronly",
   "version": "1.0.0",
-  "description": "Put a script on a cron schedule without editing crontab by hand.",
+  "description": "Schedule JavaScript scripts for everyday jobs, with cron expressions when you need them.",
   "type": "module",
   "files": [
     "bin/",
     "lib/"
   ],
   "bin": {
-    "crontab-agent": "./bin/crontab-agent.mjs"
+    "cronly": "./bin/cronly.mjs"
   },
   "scripts": {
-    "test": "node test/test.mjs"
+    "test": "node test/test.mjs",
+    "test:coverage": "c8 --100 --reporter=text node test/test.mjs",
+    "test:integration": "node test/integration.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fureweb-com/cronly.git"
+  },
+  "homepage": "https://github.com/fureweb-com/cronly#readme",
+  "bugs": {
+    "url": "https://github.com/fureweb-com/cronly/issues"
   },
   "keywords": [
+    "javascript",
+    "script",
     "crontab",
     "cron",
     "cli",
     "scheduler"
   ],
+  "author": "fureweb.com@gmail.com",
   "license": "MIT",
   "engines": {
     "node": ">=14.8.0"
+  },
+  "devDependencies": {
+    "c8": "^11.0.0"
   }
 }

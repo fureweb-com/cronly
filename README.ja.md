@@ -1,26 +1,43 @@
-# crontab-agent
+# Cronly
 
-`crontab -e` を直接開かずに、スクリプトを cron に登録するためのツールです。
-ファイルを1つ登録し、今何が入っているかを確認し、不要になったらあとで削除できます。
+スクリプトをかんたんに予約実行できます — cron 構文は不要です。
+毎日8時、平日9時、4時間ごとのように、やりたいことをそのまま指定できます。
+必要なら cron expression も直接使え、内部では crontab に安全に登録して管理します。
 
 [English](./README.md) | [한국어](./README.ko.md) | **[日本語](./README.ja.md)** | [中文](./README.zh.md)
 
 ## 1分でわかる使い方
 
 ```bash
-# このスクリプトを10分ごとに実行
-crontab-agent add ./report.mjs --schedule "*/10 * * * *"
+# 毎日 8:00 に実行
+cronly add ./daily-report.mjs --daily 08:00
+# 同じ意味の cron expression
+cronly add ./daily-report.mjs --schedule "0 8 * * *"
+
+# 平日 9:00 に実行
+cronly add ./notify.mjs --weekdays --at 09:00
+# 同じ意味の cron expression
+cronly add ./notify.mjs --schedule "0 9 * * 1-5"
+
+# 4 時間ごとに実行
+cronly add ./sync.mjs --every-hours 4
+# 同じ意味の cron expression
+cronly add ./sync.mjs --schedule "0 */4 * * *"
+
+# 毎週土曜 0:00 に実行
+cronly add ./weekly-cleanup.mjs --weekly sat --at 00:00
+# 同じ意味の cron expression
+cronly add ./weekly-cleanup.mjs --schedule "0 0 * * 6"
 
 # このツールが管理している項目を確認
-crontab-agent list
-
-# あとで削除
-crontab-agent remove ./report.mjs
+cronly list
 ```
 
 こんなときに向いています：
 
-- Node.js スクリプトやシェルスクリプトを cron で実行したい
+- `--daily`、`--weekdays`、`--every-hours` のような直感的なフラグでスクリプトを予約したい
+- cron 構文を覚えなくても日常的なスケジュールを設定したい
+- 複雑なケースでは cron expression を直接使いたい（`--schedule "0 */6 * * 1-3"`）
 - 既存の crontab の他エントリは触りたくない
 - 同じファイルを再登録してスケジュールだけ更新したい
 
@@ -33,9 +50,9 @@ crontab-agent remove ./report.mjs
 - 登録・修正・削除時に他の cron エントリを誤って変更するリスク
 - スクリプトパス変更時に crontab の同期漏れ
 
-**crontab-agent** はこれらを解決します：
+**Cronly** はこれらを解決します：
 
-| 手動 crontab 管理 | crontab-agent |
+| 手動 crontab 管理 | Cronly |
 |---|---|
 | 重複登録の可能性あり | 絶対パス基準で自動 dedupe |
 | 他エントリの誤編集リスク | 管理ブロックのみ隔離して修正 |
@@ -56,14 +73,14 @@ crontab-agent remove ./report.mjs
 
 ```bash
 # npm からインストール
-npm install -g crontab-agent
+npm install -g cronly
 
 # インストールせずに使用
-npx crontab-agent
+npx cronly
 
 # ローカル開発
-git clone https://github.com/fureweb/crontab-agent.git
-cd crontab-agent
+git clone https://github.com/fureweb-com/cronly.git
+cd cronly
 npm link
 ```
 
@@ -72,33 +89,66 @@ npm link
 ### スクリプトの登録
 
 ```bash
-# .sh ファイル → ランタイム自動推論（sh）
-crontab-agent add ./backup.sh --schedule "0 2 * * *"
+# 毎日 2:00 に実行
+cronly add ./backup.sh --daily 02:00
 
-# .mjs ファイル → ランタイム自動推論（node）
-crontab-agent add ./report.mjs --schedule "*/10 * * * *"
+# 10 分ごとに実行
+cronly add ./report.mjs --every-minutes 10
+
+# 月・水・金の 9:00 に実行
+cronly add ./class.mjs --days mon,wed,fri --at 09:00
+
+# 週末 10:00 に実行
+cronly add ./weekend-job.mjs --weekends --at 10:00
+
+# 起動時に 1 回実行
+cronly add ./startup.sh --reboot
 
 # ランタイム明示
-crontab-agent add ./custom-binary --schedule "0 * * * *" --runtime exec
-
-# cron エイリアス
-crontab-agent add ./startup.sh --schedule "@reboot"
+cronly add ./custom-binary --daily 08:00 --runtime exec
 ```
 
 同じファイルを再度 `add` すると、**追加ではなく更新**として動作します：
 
 ```bash
 # 初回：登録
-crontab-agent add ./backup.sh --schedule "0 2 * * *"
+cronly add ./backup.sh --daily 02:00
 
 # 再度：スケジュール変更（重複登録なし）
-crontab-agent add ./backup.sh --schedule "0 3 * * *"
+cronly add ./backup.sh --daily 03:00
+```
+
+### かんたんスケジュールパターン
+
+| フラグ | 例 | cron 変換結果 |
+|--------|-----|--------------|
+| `--daily HH:MM` | `--daily 08:00` | `0 8 * * *` |
+| `--every-hours N` | `--every-hours 4` | `0 */4 * * *` |
+| `--every-minutes N` | `--every-minutes 10` | `*/10 * * * *` |
+| `--weekly 曜日 --at HH:MM` | `--weekly mon --at 10:00` | `0 10 * * 1` |
+| `--days 曜日,... --at HH:MM` | `--days mon,wed,fri --at 09:00` | `0 9 * * 1,3,5` |
+| `--weekdays --at HH:MM` | `--weekdays --at 08:30` | `30 8 * * 1-5` |
+| `--weekends --at HH:MM` | `--weekends --at 10:00` | `0 10 * * 0,6` |
+| `--reboot` | `--reboot` | `@reboot` |
+
+曜日トークン: `sun`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat`（大文字小文字不問）
+
+### Cron expression 直接入力（上級者向け）
+
+上記パターンでは表現できない場合、`--schedule` で直接指定できます：
+
+```bash
+# 月〜水曜に 6 時間ごと
+cronly add ./report.mjs --schedule "0 */6 * * 1-3"
+
+# 毎月 15 日 9:00
+cronly add ./monthly.mjs --schedule "0 9 15 * *"
 ```
 
 ### 一覧表示
 
 ```bash
-crontab-agent list
+cronly list
 ```
 
 出力例：
@@ -111,16 +161,16 @@ crontab-agent list
 
 ```bash
 # ファイルパスで削除
-crontab-agent remove ./backup.sh
+cronly remove ./backup.sh
 
 # id で削除
-crontab-agent remove --id a1b2c3d4
+cronly remove --id a1b2c3d4
 ```
 
 ### Raw 出力
 
 ```bash
-crontab-agent print
+cronly print
 ```
 
 管理中のエントリの実際の crontab ブロックを出力します。
@@ -128,7 +178,7 @@ crontab-agent print
 ### 環境チェック
 
 ```bash
-crontab-agent doctor
+cronly doctor
 ```
 
 Node.js バージョン、`crontab` コマンドの存在、crontab の読み取り可否を点検します。
@@ -146,12 +196,12 @@ Node.js バージョン、`crontab` コマンドの存在、crontab の読み取
 # 既存の手動エントリ（変更なし）
 0 * * * * /usr/bin/some-other-job
 
-# [crontab-agent:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
+# [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
 0 2 * * * '/bin/sh' '/home/user/backup.sh'
-# [crontab-agent:end] id=a1b2c3d4
+# [cronly:end] id=a1b2c3d4
 ```
 
-`# [crontab-agent:begin]` / `# [crontab-agent:end]` ブロックで囲み、他の手動エントリと完全に隔離します。
+`# [cronly:begin]` / `# [cronly:end]` ブロックで囲み、他の手動エントリと完全に隔離します。
 
 ## テスト
 
@@ -162,7 +212,7 @@ npm test
 ## プロジェクト構造
 
 ```
-├── bin/crontab-agent.mjs      # CLI エントリポイント
+├── bin/cronly.mjs             # CLI エントリポイント
 ├── lib/
 │   ├── cli.mjs                # argv パース、ヘルプ
 │   ├── commands.mjs           # add/list/remove/print/doctor 実装

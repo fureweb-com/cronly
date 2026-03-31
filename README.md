@@ -1,26 +1,43 @@
-# crontab-agent
+# Cronly
 
-Put a script on a cron schedule without opening `crontab -e`.
-Add one file, check what is registered, and remove it later when you no longer need it.
+Schedule scripts easily — no cron syntax needed.
+Say what you mean: every day at 8, weekdays at 9, every 4 hours.
+Cron expressions are still available when you need them. Cronly safely manages the crontab entries underneath.
 
 **[English](./README.md)** | [한국어](./README.ko.md) | [日本語](./README.ja.md) | [中文](./README.zh.md)
 
 ## In One Minute
 
 ```bash
-# Run this script every 10 minutes
-crontab-agent add ./report.mjs --schedule "*/10 * * * *"
+# Every day at 8:00
+cronly add ./daily-report.mjs --daily 08:00
+# Same schedule with a cron expression
+cronly add ./daily-report.mjs --schedule "0 8 * * *"
+
+# Weekdays at 9:00
+cronly add ./notify.mjs --weekdays --at 09:00
+# Same schedule with a cron expression
+cronly add ./notify.mjs --schedule "0 9 * * 1-5"
+
+# Every 4 hours
+cronly add ./sync.mjs --every-hours 4
+# Same schedule with a cron expression
+cronly add ./sync.mjs --schedule "0 */4 * * *"
+
+# Every Saturday at midnight
+cronly add ./weekly-cleanup.mjs --weekly sat --at 00:00
+# Same schedule with a cron expression
+cronly add ./weekly-cleanup.mjs --schedule "0 0 * * 6"
 
 # See what this tool manages
-crontab-agent list
-
-# Remove it later
-crontab-agent remove ./report.mjs
+cronly list
 ```
 
 Use this when you want to:
 
-- run a Node.js script or shell script on a schedule
+- schedule scripts with plain English flags like `--daily`, `--weekdays`, or `--every-hours`
+- skip learning cron syntax for everyday scheduling needs
+- use cron expressions directly for advanced cases (`--schedule "0 */6 * * 1-3"`)
 - avoid editing unrelated cron entries by hand
 - update the schedule by running `add` again for the same file
 
@@ -33,9 +50,9 @@ Managing crontab manually with `crontab -e` leads to common problems:
 - Risk of breaking other cron entries when editing
 - Forgetting to sync crontab after changing a script path
 
-**crontab-agent** solves these:
+**Cronly** solves these:
 
-| Manual crontab | crontab-agent |
+| Manual crontab | Cronly |
 |---|---|
 | Duplicate entries possible | Auto dedupe by absolute path |
 | Risk of editing other entries | Only touches managed blocks |
@@ -56,14 +73,14 @@ Managing crontab manually with `crontab -e` leads to common problems:
 
 ```bash
 # From npm
-npm install -g crontab-agent
+npm install -g cronly
 
 # Or use without installing
-npx crontab-agent
+npx cronly
 
 # Local development
-git clone https://github.com/fureweb/crontab-agent.git
-cd crontab-agent
+git clone https://github.com/fureweb-com/cronly.git
+cd cronly
 npm link
 ```
 
@@ -72,33 +89,66 @@ npm link
 ### Register a script
 
 ```bash
-# .sh file → runtime auto-detected (sh)
-crontab-agent add ./backup.sh --schedule "0 2 * * *"
+# Every day at 2:00 AM
+cronly add ./backup.sh --daily 02:00
 
-# .mjs file → runtime auto-detected (node)
-crontab-agent add ./report.mjs --schedule "*/10 * * * *"
+# Every 10 minutes
+cronly add ./report.mjs --every-minutes 10
+
+# Monday, Wednesday, Friday at 9:00
+cronly add ./class.mjs --days mon,wed,fri --at 09:00
+
+# Weekends at 10:00
+cronly add ./weekend-job.mjs --weekends --at 10:00
+
+# On reboot
+cronly add ./startup.sh --reboot
 
 # Explicit runtime
-crontab-agent add ./custom-binary --schedule "0 * * * *" --runtime exec
-
-# Cron aliases
-crontab-agent add ./startup.sh --schedule "@reboot"
+cronly add ./custom-binary --daily 08:00 --runtime exec
 ```
 
 Re-adding the same file **updates instead of duplicating**:
 
 ```bash
 # First time: register
-crontab-agent add ./backup.sh --schedule "0 2 * * *"
+cronly add ./backup.sh --daily 02:00
 
 # Again: updates the schedule (no duplicate)
-crontab-agent add ./backup.sh --schedule "0 3 * * *"
+cronly add ./backup.sh --daily 03:00
+```
+
+### Easy schedule patterns
+
+| Flag | Example | Cron equivalent |
+|------|---------|-----------------|
+| `--daily HH:MM` | `--daily 08:00` | `0 8 * * *` |
+| `--every-hours N` | `--every-hours 4` | `0 */4 * * *` |
+| `--every-minutes N` | `--every-minutes 10` | `*/10 * * * *` |
+| `--weekly DAY --at HH:MM` | `--weekly mon --at 10:00` | `0 10 * * 1` |
+| `--days D1,D2 --at HH:MM` | `--days mon,wed,fri --at 09:00` | `0 9 * * 1,3,5` |
+| `--weekdays --at HH:MM` | `--weekdays --at 08:30` | `30 8 * * 1-5` |
+| `--weekends --at HH:MM` | `--weekends --at 10:00` | `0 10 * * 0,6` |
+| `--reboot` | `--reboot` | `@reboot` |
+
+Weekday tokens: `sun`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat` (case-insensitive)
+
+### Cron expressions (advanced)
+
+For patterns not covered above, use `--schedule` directly:
+
+```bash
+# Every 6 hours on Mon-Wed
+cronly add ./report.mjs --schedule "0 */6 * * 1-3"
+
+# 15th of every month at 9:00
+cronly add ./monthly.mjs --schedule "0 9 15 * *"
 ```
 
 ### List entries
 
 ```bash
-crontab-agent list
+cronly list
 ```
 
 Example output:
@@ -111,24 +161,24 @@ Example output:
 
 ```bash
 # By file path
-crontab-agent remove ./backup.sh
+cronly remove ./backup.sh
 
 # By id
-crontab-agent remove --id a1b2c3d4
+cronly remove --id a1b2c3d4
 ```
 
 ### Print raw blocks
 
 ```bash
-crontab-agent print
+cronly print
 ```
 
-Outputs the raw crontab representation of managed entries.
+Outputs the actual crontab block for managed entries.
 
 ### Health check
 
 ```bash
-crontab-agent doctor
+cronly doctor
 ```
 
 Checks Node.js version, `crontab` command availability, and crontab read access.
@@ -146,12 +196,12 @@ Checks Node.js version, `crontab` command availability, and crontab read access.
 # Existing manual entry (untouched)
 0 * * * * /usr/bin/some-other-job
 
-# [crontab-agent:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
+# [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
 0 2 * * * '/bin/sh' '/home/user/backup.sh'
-# [crontab-agent:end] id=a1b2c3d4
+# [cronly:end] id=a1b2c3d4
 ```
 
-Managed entries are wrapped in `# [crontab-agent:begin]` / `# [crontab-agent:end]` blocks, completely isolated from other entries.
+Managed entries are wrapped in `# [cronly:begin]` / `# [cronly:end]` blocks, completely isolated from other entries.
 
 ## Testing
 
@@ -162,7 +212,7 @@ npm test
 ## Project structure
 
 ```
-├── bin/crontab-agent.mjs      # CLI entry point
+├── bin/cronly.mjs             # CLI entry point
 ├── lib/
 │   ├── cli.mjs                # argv parsing, help text
 │   ├── commands.mjs           # add/list/remove/print/doctor
