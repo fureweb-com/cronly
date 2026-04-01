@@ -1,5 +1,12 @@
 # Cronly
 
+[![npm version](https://img.shields.io/npm/v/%40fureweb%2Fcronly?logo=npm)](https://www.npmjs.com/package/@fureweb/cronly)
+[![npm downloads](https://img.shields.io/npm/dm/%40fureweb%2Fcronly?logo=npm)](https://www.npmjs.com/package/@fureweb/cronly)
+[![license](https://img.shields.io/github/license/fureweb-com/cronly)](https://github.com/fureweb-com/cronly/blob/main/LICENSE)
+[![tests](https://github.com/fureweb-com/cronly/actions/workflows/ci.yml/badge.svg)](https://github.com/fureweb-com/cronly/actions/workflows/ci.yml)
+[![coverage](https://codecov.io/github/fureweb-com/cronly/graph/badge.svg?branch=main)](https://app.codecov.io/github/fureweb-com/cronly)
+[![stars](https://img.shields.io/github/stars/fureweb-com/cronly?style=social)](https://github.com/fureweb-com/cronly/stargazers)
+
 스크립트를 쉽게 예약 실행해요 — cron 문법을 몰라도 돼요.
 매일 8시, 평일 9시, 4시간마다처럼 원하는 일정을 그대로 말하면 돼요.
 필요하면 cron expression도 직접 쓸 수 있고, 내부적으로는 crontab에 안전하게 등록하고 관리해요.

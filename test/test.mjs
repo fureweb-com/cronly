@@ -9,6 +9,10 @@ import { add, doctor, isSupportedNodeVersion, list, print, remove, removeBlockFr
 import { parseArgv } from '../lib/cli.mjs'
 import { readCrontab, writeCrontab } from '../lib/crontab.mjs'
 import { normalizeLocale, detectLocale, setLocale, getLocale, t, getUsage } from '../lib/i18n.mjs'
+import enCatalog from '../lib/i18n/en.mjs'
+import koCatalog from '../lib/i18n/ko.mjs'
+import jaCatalog from '../lib/i18n/ja.mjs'
+import zhCatalog from '../lib/i18n/zh.mjs'
 import {
   resolveSchedule,
   validateCron,
@@ -19,6 +23,8 @@ import {
 
 let passed = 0
 let failed = 0
+
+const LOCALE_CATALOGS = { en: enCatalog, ko: koCatalog, ja: jaCatalog, zh: zhCatalog }
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'cronly.mjs')
 
@@ -1167,6 +1173,55 @@ test('t: 현재 locale에 없는 키는 영어 fallback', () => {
   // 한국어 catalog에 없는 가상 키 테스트 — 실제로는 모든 키가 있으므로 getUsage로 확인
   assert.ok(getUsage().includes('Cronly'))
   setLocale('en')
+})
+
+test('t: 지원하지 않는 현재 locale이어도 영어로 fallback', () => {
+  setLocale('xx')
+  assert.ok(t('schedule.SCHEDULE_REQUIRED').includes('Please specify a schedule'))
+  setLocale('en')
+})
+
+test('setLocale/getLocale: 현재 locale을 유지해요', () => {
+  setLocale('ja')
+  assert.equal(getLocale(), 'ja')
+  setLocale('en')
+  assert.equal(getLocale(), 'en')
+})
+
+test('i18n catalogs: 함수형 메시지가 모든 locale에서 렌더링돼요', () => {
+  const generic = {
+    detail: '--weekdays',
+    path: '/tmp/job.mjs',
+    id: 'abcd1234',
+    expected: 5,
+    actual: 4,
+    field: 'hour',
+    value: '99',
+    hint: '--daily 00:00',
+    flag: 'every-hours',
+    min: 1,
+    max: 23,
+    count: 2,
+    message: 'boom',
+    command: 'list',
+    extra: 'extra-arg',
+    flags: '--bogus',
+    lang: 'xx',
+  }
+
+  for (const [locale, catalog] of Object.entries(LOCALE_CATALOGS)) {
+    for (const [key, value] of Object.entries(catalog)) {
+      if (typeof value !== 'function' || key === 'schedule.INVALID_INTERVAL') continue
+      const rendered = value(generic)
+      assert.equal(typeof rendered, 'string', `${locale}:${key} should render to string`)
+      assert.ok(rendered.length > 0, `${locale}:${key} should not be empty`)
+    }
+
+    const interval = catalog['schedule.INVALID_INTERVAL']
+    assert.equal(typeof interval({ flag: 'every-hours', reason: 'no_value' }), 'string', `${locale}:no_value`)
+    assert.equal(typeof interval({ flag: 'every-hours', value: 'abc', reason: 'not_integer' }), 'string', `${locale}:not_integer`)
+    assert.equal(typeof interval({ flag: 'every-hours', value: '25', reason: 'out_of_range', min: 1, max: 23 }), 'string', `${locale}:out_of_range`)
+  }
 })
 
 test('getUsage: 영어 도움말', () => {

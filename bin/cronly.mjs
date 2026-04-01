@@ -68,7 +68,6 @@ const EXPECTED_ARGS = { add: 1, remove: 1, list: 0, print: 0, doctor: 0 }
 
 function rejectUnknownFlags(cmd, flags) {
   const known = KNOWN_FLAGS[cmd]
-  if (!known) return
   const unknown = Object.keys(flags).filter((f) => !known.has(f))
   if (unknown.length > 0) {
     console.error(t('errors.unknown_option', { flags: unknown.map((f) => `--${f}`).join(', ') }))
