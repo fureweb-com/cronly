@@ -5,7 +5,7 @@
  * 실행: node test/integration.mjs
  */
 import { execFileSync, spawnSync } from 'child_process'
-import { writeFileSync, unlinkSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync, unlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
@@ -13,13 +13,20 @@ import assert from 'assert/strict'
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'cronly.mjs')
 
+// 로그 디렉터리는 임시 경로에 만들어 실제 ~/.cronly를 건드리지 않습니다
+const cronlyHome = mkdtempSync(join(tmpdir(), 'cronly-integration-'))
+
 // Default env forces English to avoid inheriting system locale
-const defaultEnv = { ...process.env, CRONLY_LANG: 'en' }
+const defaultEnv = { ...process.env, CRONLY_LANG: 'en', CRONLY_HOME: cronlyHome }
+
+// 도중에 macOS 권한 창이 다시 떠도 응답할 시간을 둡니다. 너무 짧으면 node만 종료되고
+// 대기 중이던 crontab 프로세스가 남아, 승인되는 순간 오래된 내용을 덮어씁니다.
+const COMMAND_TIMEOUT = 120000
 
 function run(...args) {
   const result = spawnSync('node', [CLI, ...args], {
     encoding: 'utf8',
-    timeout: 15000,
+    timeout: COMMAND_TIMEOUT,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: defaultEnv,
   })
@@ -31,7 +38,7 @@ function run(...args) {
 function runRaw(...args) {
   return spawnSync('node', [CLI, ...args], {
     encoding: 'utf8',
-    timeout: 15000,
+    timeout: COMMAND_TIMEOUT,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: defaultEnv,
   })
@@ -40,7 +47,7 @@ function runRaw(...args) {
 function runEnv(env, ...args) {
   const result = spawnSync('node', [CLI, ...args], {
     encoding: 'utf8',
-    timeout: 15000,
+    timeout: COMMAND_TIMEOUT,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...defaultEnv, ...env },
   })
@@ -58,11 +65,35 @@ function crontabRaw() {
 }
 
 // ── 백업 ────────────────────────────────────────────────────────────────────
-let backup
-try {
-  backup = crontabRaw()
-} catch {
-  backup = ''
+// crontab이 아예 없던 경우는 복원할 때 빈 crontab을 설치하지 않고 삭제합니다
+const hadCrontab = spawnSync('crontab', ['-l'], { stdio: 'ignore' }).status === 0
+const backup = crontabRaw()
+
+function restoreCrontab() {
+  if (hadCrontab) {
+    execFileSync('crontab', ['-'], { input: backup, encoding: 'utf8' })
+  } else {
+    spawnSync('crontab', ['-r'], { stdio: 'ignore' })
+  }
+}
+
+// Ctrl+C로 중단해도 finally가 실행되지 않으므로 여기서 복원합니다
+process.once('SIGINT', () => {
+  restoreCrontab()
+  console.log('\n중단됨: crontab 복원 완료.')
+  process.exit(130)
+})
+
+// ── 쓰기 권한 확인 ──────────────────────────────────────────────────────────
+// macOS는 crontab을 바꿀 때 권한 확인 창을 띄우고, 응답할 때까지 crontab 명령이 멈춥니다.
+// 같은 내용을 먼저 한 번 써서 테스트 시작 전에 권한 창을 처리합니다.
+console.log('crontab 쓰기 권한 확인 중 (macOS 권한 창이 뜨면 허용해 주세요)...')
+const preflight = spawnSync('crontab', ['-'], { input: backup, encoding: 'utf8', timeout: 10 * 60 * 1000 })
+if (preflight.status !== 0) {
+  const reason = (preflight.stderr || '').trim() || (preflight.error && preflight.error.message) || `exit ${preflight.status}`
+  console.error(`crontab에 쓸 수 없어 통합 테스트를 중단합니다: ${reason}`)
+  rmSync(cronlyHome, { recursive: true, force: true })
+  process.exit(1)
 }
 
 // 임시 스크립트 파일 생성
@@ -167,6 +198,12 @@ try {
     const raw = crontabRaw()
     assert.ok(raw.includes(tmpScript1))
     assert.ok(raw.includes('cronly:begin'))
+  })
+
+  await test('add: 실제 crontab이 cd/PATH/로그 리다이렉트가 붙은 명령을 받아들임', () => {
+    const raw = crontabRaw()
+    assert.ok(raw.includes(`cd '${dirname(tmpScript1)}' && PATH='`))
+    assert.ok(raw.includes(`>> '${join(cronlyHome, 'logs')}/`))
   })
 
   await test('add: --schedule로 같은 파일 업데이트', () => {
@@ -304,15 +341,16 @@ try {
 } finally {
   // ── 복원 ──────────────────────────────────────────────────────────────────
   try {
-    execFileSync('crontab', ['-'], { input: backup, encoding: 'utf8' })
-    console.log('\ncrontab 복원 완료.')
+    restoreCrontab()
+    console.log(hadCrontab ? '\ncrontab 복원 완료.' : '\ncrontab 삭제 완료 (원래 없었음).')
   } catch {
-    console.log('\ncrontab 복원 (빈 상태).')
+    console.log('\ncrontab 복원 실패. crontab -l로 확인해 주세요.')
   }
 
   // 임시 파일 정리
   try { unlinkSync(tmpScript1) } catch {}
   try { unlinkSync(tmpScript2) } catch {}
+  rmSync(cronlyHome, { recursive: true, force: true })
 }
 
 console.log(`\n결과: ${passed}개 통과, ${failed}개 실패`)
