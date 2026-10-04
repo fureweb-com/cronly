@@ -1,18 +1,28 @@
 #!/usr/bin/env node
 
 import { createRequire } from 'module'
-import { parseArgv } from '../lib/cli.mjs'
+import { BOOLEAN_FLAGS, parseArgv } from '../lib/cli.mjs'
 import { normalizeLocale, detectLocale, setLocale, t, getUsage } from '../lib/i18n.mjs'
 import { resolveSchedule } from '../lib/schedule.mjs'
 import { add, list, remove, print, doctor } from '../lib/commands.mjs'
 
 const { command, args, flags } = parseArgv(process.argv)
 
+function isMissingValue(value) {
+  return value === true || value === ''
+}
+
 // ── validate --lang (must error before anything else) ──────────────────────
 
-if (flags.lang && !normalizeLocale(flags.lang)) {
-  console.error(t('errors.invalid_lang', { lang: flags.lang }))
-  process.exit(1)
+if (flags.lang !== undefined) {
+  if (isMissingValue(flags.lang)) {
+    console.error(t('errors.missing_value', { flag: '--lang' }))
+    process.exit(1)
+  }
+  if (!normalizeLocale(flags.lang)) {
+    console.error(t('errors.invalid_lang', { lang: flags.lang }))
+    process.exit(1)
+  }
 }
 
 // ── --version / -v ─────────────────────────────────────────────────────────
@@ -75,6 +85,21 @@ function rejectUnknownFlags(cmd, flags) {
   }
 }
 
+function rejectBadValues(flags) {
+  for (const [key, value] of Object.entries(flags)) {
+    let message = null
+    if (BOOLEAN_FLAGS.has(key)) {
+      if (value !== true) message = 'errors.unexpected_value'
+    } else if (isMissingValue(value)) {
+      message = 'errors.missing_value'
+    }
+    if (message) {
+      console.error(t(message, { flag: `--${key}` }))
+      process.exit(1)
+    }
+  }
+}
+
 function rejectExtraArgs(cmd, args) {
   const max = EXPECTED_ARGS[cmd]
   if (max !== undefined && args.length > max) {
@@ -90,6 +115,7 @@ try {
   switch (command) {
     case 'add': {
       rejectUnknownFlags('add', flags)
+      rejectBadValues(flags)
       rejectExtraArgs('add', args)
       const result = resolveSchedule(flags)
       if (result.error) {
@@ -101,23 +127,27 @@ try {
     }
     case 'list':
       rejectUnknownFlags('list', flags)
+      rejectBadValues(flags)
       rejectExtraArgs('list', args)
       await list()
       break
     case 'remove':
       rejectUnknownFlags('remove', flags)
+      rejectBadValues(flags)
       rejectExtraArgs('remove', args)
       await remove(args[0], { id: flags.id })
       break
     case 'print':
       rejectUnknownFlags('print', flags)
+      rejectBadValues(flags)
       rejectExtraArgs('print', args)
       await print()
       break
     case 'doctor':
       rejectUnknownFlags('doctor', flags)
+      rejectBadValues(flags)
       rejectExtraArgs('doctor', args)
-      await doctor()
+      if (!(await doctor())) process.exitCode = 1
       break
     default:
       console.error(t('errors.unknown_command', { command }))

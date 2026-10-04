@@ -61,7 +61,7 @@ Managing crontab manually with `crontab -e` leads to common problems:
 
 | Manual crontab | Cronly |
 |---|---|
-| Duplicate entries possible | Auto dedupe by absolute path |
+| Duplicate entries possible | Auto dedupe by file, across symlinks and letter case |
 | Risk of editing other entries | Only touches managed blocks |
 | Hard to identify entries | Metadata comments for identification |
 | Manual sync on changes | `add` works as upsert |
@@ -72,6 +72,7 @@ Managing crontab manually with `crontab -e` leads to common problems:
 - No DB, server, or daemon — the real crontab is the source of truth
 - Managed entries are wrapped in metadata comments, fully isolated from manual entries
 - Paths with spaces, single quotes, and `%` are safely shell-quoted
+- Jobs run from the script's directory and log their output to `~/.cronly/logs/<id>.log`
 - Supports cron aliases (`@reboot`, `@daily`, `@weekly`, etc.)
 - ESM-based (`"type": "module"`)
 - Node.js >= 14.8.0
@@ -117,6 +118,8 @@ cronly add ./startup.sh --reboot
 cronly add ./custom-binary --daily 08:00 --runtime exec
 ```
 
+`--runtime` also accepts another interpreter by name or path (for example `--runtime python3`). It is resolved to an absolute path when you run `add`, so cron can find it. Options can be written as `--daily 08:00` or `--daily=08:00`.
+
 Re-adding the same file **updates instead of duplicating**:
 
 ```bash
@@ -141,6 +144,8 @@ cronly add ./backup.sh --daily 03:00
 | `--reboot` | `--reboot` | `@reboot` |
 
 Weekday tokens: `sun`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat` (case-insensitive)
+
+`--every-hours` accepts 1, 2, 3, 4, 6, 8, 12 and `--every-minutes` accepts 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30. cron restarts `*/N` every day (hours) or every hour (minutes), so other values would not repeat at even intervals. Use `--schedule` if you need them anyway.
 
 ### Cron expressions (advanced)
 
@@ -190,14 +195,31 @@ Outputs the actual crontab block for managed entries.
 cronly doctor
 ```
 
-Checks Node.js version, `crontab` command availability, and crontab read access.
+Checks the Node.js version, the `crontab` command, crontab read access, that each managed entry's script, runtime, and log directory still exist, and that no file is registered twice. Exits with code 1 if any check fails.
+
+### macOS permission dialog
+
+On macOS, changing the crontab from an app without Full Disk Access opens a permission dialog, and `cronly add` and `cronly remove` wait until you answer it. The dialog can open behind other windows, so Cronly prints a reminder when the change takes more than a few seconds. To skip the dialog, grant Full Disk Access to the app you run Cronly from (System Settings > Privacy & Security > Full Disk Access).
+
+## How scheduled jobs run
+
+cron starts jobs with a minimal environment, so a script that works in your terminal can fail silently under cron. Cronly sets up each job so it behaves more like a manual run:
+
+- **Working directory**: the job runs from the script's directory, so relative paths such as `.env` or `./config.json` resolve.
+- **PATH**: the directory of the Node.js that ran `cronly add` comes first, followed by `/usr/bin:/bin`, so shell scripts can call `node`, `npm`, and `npx`. Call other tools by absolute path, or set `PATH` in your script.
+- **Logs**: stdout and stderr are appended to `~/.cronly/logs/<id>.log`. Set `CRONLY_HOME` to use a different base directory. Logs are not rotated.
+- **Node.js version**: jobs run with the exact Node.js binary that registered them (for example an nvm version directory). If you remove that version, `cronly doctor` reports it; run `cronly add` again to switch to the current one.
+
+Entries registered by an older version of Cronly keep their old command line until you run `cronly add` for them again.
 
 ## How duplicate prevention works
 
 1. Normalize the script file to an **absolute path** (`path.resolve`)
 2. Generate a **dedupe id** from the first 8 hex chars of its SHA-256 hash
-3. On `add`, if a block with the same id exists, **replace it** (upsert)
+3. On `add`, **replace** the block with the same id, along with any block whose path points to the same file (same inode, such as a symlink or a different letter case on macOS) (upsert)
 4. Otherwise, **append** a new block
+
+cron runs the path you passed to `add`, so a symlinked deploy such as `current -> releases/v2` keeps following the link. `remove <file>` removes every entry for that file.
 
 ### Crontab internal format
 
@@ -206,7 +228,7 @@ Checks Node.js version, `crontab` command availability, and crontab read access.
 0 * * * * /usr/bin/some-other-job
 
 # [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
-0 2 * * * '/bin/sh' '/home/user/backup.sh'
+0 2 * * * cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
 # [cronly:end] id=a1b2c3d4
 ```
 
@@ -223,10 +245,13 @@ npm test
 ```
 ├── bin/cronly.mjs             # CLI entry point
 ├── lib/
-│   ├── cli.mjs                # argv parsing, help text
+│   ├── cli.mjs                # argv parsing
 │   ├── commands.mjs           # add/list/remove/print/doctor
 │   ├── crontab.mjs            # crontab read/write (child_process)
-│   └── entry.mjs              # entry build/parse/dedupe
+│   ├── entry.mjs              # entry build/parse/dedupe
+│   ├── schedule.mjs           # schedule flags → cron expression
+│   ├── i18n.mjs               # locale detection, message lookup
+│   └── i18n/                  # messages and help text (en, ko, ja, zh)
 ├── test/
 │   ├── test.mjs               # Unit tests
 │   └── integration.mjs        # Integration tests (real crontab)
@@ -238,11 +263,10 @@ npm test
 
 - **dry-run mode**: Preview changes without modifying crontab
 - **import/export**: Backup/restore managed entries as JSON
-- **log path**: Auto-append `>> /path/to/log 2>&1`
-- **environment variables**: Set PATH and other env vars for cron execution
+- **log options**: Custom log path and log rotation
+- **environment variables**: Set custom env vars for cron execution
 - **MAILTO**: Per-entry error notification email
 - **groups/tags**: Batch manage entries by group
-- **cron expression validation**: Pre-validate schedule values
 - **overlap prevention**: flock-based concurrent execution guard
 
 ## Limitations
@@ -251,6 +275,8 @@ npm test
 - No systemd timer or `/etc/cron.d` support
 - Single machine only (no distributed environments)
 - No overlap execution prevention
+- Logs are appended without rotation
+- Cron commands longer than 999 bytes are rejected (Vixie-based cron truncates them)
 - Paths containing newline or carriage return characters are not supported
 
 ## License
