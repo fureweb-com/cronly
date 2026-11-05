@@ -1028,6 +1028,12 @@ test('resolveSchedule: --schedule raw cron', () => {
   assert.equal(r.cron, '*/5 * * * *')
 })
 
+test('resolveSchedule: 줄바꿈·탭이 섞인 스케줄을 한 줄로 정규화', () => {
+  for (const schedule of ['0 8\n* * *', ' 0\t8\r\n*\n\n* * ', '0  8 * * *']) {
+    assert.deepEqual(resolveSchedule({ schedule }), { cron: '0 8 * * *' })
+  }
+})
+
 test('resolveSchedule: --schedule @reboot', () => {
   const r = resolveSchedule({ schedule: '@reboot' })
   assert.equal(r.cron, '@reboot')
@@ -2357,6 +2363,17 @@ await testAsync('CLI: doctor가 실패하면 exit 1', async () => {
     const result = ctx.cli(['doctor'])
     assert.equal(result.status, 1)
     assert.ok(result.stdout.includes('Some checks failed.'))
+  })
+})
+
+await testAsync('CLI: 여러 줄 스케줄도 하나의 cron 줄로 등록', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const file = ctx.createScript('job.mjs', 'console.log("ok")\n')
+    const result = ctx.cli(['add', file, '--schedule', '0 8\n\n*\t* *'])
+    assert.equal(result.status, 0, result.stderr)
+    const raw = ctx.readState()
+    assert.equal(raw.trim().split('\n').length, 3)
+    assert.equal(parseBlocks(raw)[0].schedule, '0 8 * * *')
   })
 })
 
