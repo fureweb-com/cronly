@@ -9,7 +9,7 @@
 
 스크립트를 쉽게 예약 실행해요 — cron 문법을 몰라도 돼요.
 매일 8시, 평일 9시, 4시간마다처럼 원하는 일정을 그대로 말하면 돼요.
-필요하면 cron expression도 직접 쓸 수 있고, 내부적으로는 crontab에 안전하게 등록하고 관리해요.
+필요하면 cron expression도 직접 쓸 수 있어요. macOS는 launchd, Linux는 cron에 등록해요.
 
 [English](./README.md) | **[한국어](./README.ko.md)** | [日本語](./README.ja.md) | [中文](./README.zh.md)
 
@@ -69,9 +69,9 @@ cronly list
 ## 특징
 
 - 외부 npm dependency 0개 — Node.js 내장 모듈만 사용해요
-- 별도 DB, 서버, daemon이 없어요 — source of truth는 실제 crontab이에요
-- 관리 엔트리에 메타데이터 주석을 붙여 기존 수동 항목과 완전히 격리해요
-- 공백, single quote, `%`가 포함된 경로를 안전하게 shell-quote 처리해요
+- 별도 DB, 서버, daemon이 없어요 — LaunchAgent 파일 또는 crontab을 기준으로 관리해요
+- 관리 작업에 메타데이터를 붙여 다른 스케줄러 항목과 격리해요
+- 공백, single quote, `%` 경로를 macOS에서는 실행 인자로, cron에서는 안전한 셸 인용으로 처리해요
 - 작업은 스크립트가 있는 디렉터리에서 실행되고, 출력은 `~/.cronly/logs/<id>.log`에 남아요
 - cron alias를 지원해요 (`@reboot`, `@daily`, `@weekly` 등)
 - ESM 기반 (`"type": "module"`)
@@ -93,6 +93,24 @@ npm link
 ```
 
 전역 설치 후 실행 명령은 `cronly`예요.
+
+## macOS와 Linux 스케줄러
+
+macOS는 기본으로 사용자별 `launchd` LaunchAgent를, Linux는 cron을 사용해요. 명령과 일정 플래그는 같아요. macOS는 작업마다 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`를 만들고 셸을 거치지 않고 실행 인자를 전달해요. 등록에 실패하면 이전 설정을 복원해요.
+
+LaunchAgent는 GUI 로그인 세션이 필요하며 해당 사용자가 로그인한 동안 실행돼요. macOS의 `--reboot`/`@reboot`는 등록·재등록·로그인 시 실행돼요. cron에서는 기존 부팅 시 실행 의미를 유지해요. 잠든 동안 놓친 달력 일정은 깨어날 때 한 번 실행될 수 있어요. 보호된 파일 접근에는 macOS 권한이 적용돼요.
+
+목록·범위·간격·별칭을 네이티브 달력 일정으로 변환하고 날짜·요일의 OR 의미도 보존해요. 다만 `0 0 */2 * 1`처럼 간격이 있는 날짜 와일드카드와 제한된 요일을 함께 쓰거나 그 반대인 조합은 정확하게 표현할 수 없어 거부해요. 달력 조합이 4,096개를 넘는 일정도 거부해요. 일정을 단순화하거나 `CRONLY_BACKEND=cron`을 명시해 주세요.
+
+기존 cron 작업을 자동으로 옮기지는 않아요. `list`, `print`, `doctor`에서 이전 작업을 안내하고, 같은 파일을 두 스케줄러에 중복 등록하지 못하게 막아요. 다음처럼 명시적으로 옮겨 주세요.
+
+```bash
+CRONLY_BACKEND=cron cronly list
+CRONLY_BACKEND=cron cronly remove ./job.mjs
+cronly add ./job.mjs --daily 08:00
+```
+
+`CRONLY_BACKEND=cron|launchd`로 스케줄러를 직접 선택할 수 있어요. `CRONLY_HOME`은 로그 위치를 바꾸며 기본 LaunchAgents 경로에는 영향을 주지 않아요. 테스트에서는 `CRONLY_LAUNCHD_DIR`로 plist를 격리할 수 있지만, `~/Library/LaunchAgents` 밖의 파일은 다음 로그인에 자동 등록되지 않아요.
 
 ## 사용법
 
@@ -187,7 +205,7 @@ cronly remove --id a1b2c3d4
 cronly print
 ```
 
-관리 중인 엔트리의 실제 crontab 블록을 출력해요.
+관리 작업의 LaunchAgent plist 또는 cron 블록을 출력해요.
 
 ### 환경 점검
 
@@ -195,9 +213,9 @@ cronly print
 cronly doctor
 ```
 
-Node.js 버전, `crontab` 명령, crontab 읽기 권한, 관리 중인 각 엔트리의 스크립트를 읽거나 실행할 수 있는지, 런타임을 실행할 수 있는지, 로그를 쓸 수 있는지, 같은 파일이 두 번 등록되지 않았는지 점검해요. 하나라도 실패하면 종료 코드 1로 끝나요.
+Node.js, 스크립트·런타임 권한, 로그 쓰기 권한, 중복 등록을 점검해요. macOS에서는 로그인 세션·LaunchAgent 로드 여부·마지막 종료 상태를, cron에서는 crontab 접근을 확인해요. 이전 cron 작업도 이전할 수 있도록 안내해요. 문제가 있으면 종료 코드 1로 끝나요.
 
-### macOS 권한 창
+### macOS 권한 창 (`CRONLY_BACKEND=cron`)
 
 macOS에서는 전체 디스크 접근 권한이 없는 앱이 crontab을 바꾸면 권한 창이 뜨고, `cronly add`와 `cronly remove`는 그 창에 응답할 때까지 기다려요. 권한 창이 다른 창 뒤에 가려질 수 있어서, 몇 초 넘게 걸리면 안내 문구를 출력해요. 권한 창 없이 쓰려면 Cronly를 실행하는 앱에 전체 디스크 접근 권한을 주세요 (시스템 설정 > 개인정보 보호 및 보안 > 전체 디스크 접근 권한).
 
@@ -221,7 +239,7 @@ cron은 최소한의 환경으로 작업을 실행해서, 터미널에서는 잘
 
 cron은 `add`에 넘긴 경로를 그대로 실행해서, `current -> releases/v2` 같은 심볼릭 링크 배포 구조에서도 계속 링크를 따라가요. `remove <file>`은 그 파일의 엔트리를 모두 삭제해요.
 
-### crontab 내부 형태
+### crontab 내부 형태 (cron)
 
 ```crontab
 # 기존 수동 항목 (건드리지 않음)
@@ -238,6 +256,10 @@ cron은 `add`에 넘긴 경로를 그대로 실행해서, `current -> releases/v
 
 ```bash
 npm test
+# macOS: real launchd daemon, isolated jobs and cleanup
+npm run test:launchd
+# Explicit legacy cron integration test
+npm run test:integration
 ```
 
 ## 프로젝트 구조
@@ -247,6 +269,10 @@ npm test
 ├── lib/
 │   ├── cli.mjs                # argv 파싱
 │   ├── commands.mjs           # add/list/remove/print/doctor 구현
+│   ├── backend.mjs            # macOS launchd / Linux cron
+│   ├── launchd.mjs            # LaunchAgent lifecycle
+│   ├── launchd-schedule.mjs   # native calendar conversion
+│   ├── job.mjs                # shared runtime / diagnostics
 │   ├── crontab.mjs            # crontab 읽기/쓰기 (child_process)
 │   ├── entry.mjs              # 엔트리 빌드/파싱/dedupe
 │   ├── schedule.mjs           # 스케줄 플래그 → cron 표현식 변환
@@ -254,6 +280,7 @@ npm test
 │   └── i18n/                  # 메시지와 도움말 (en, ko, ja, zh)
 ├── test/
 │   ├── test.mjs               # 단위 테스트
+│   ├── launchd-integration.mjs # real launchd daemon test
 │   └── integration.mjs        # 통합 테스트 (실제 crontab)
 ├── package.json
 └── LICENSE
@@ -271,7 +298,7 @@ npm test
 
 ## 제약 사항
 
-- user crontab만 지원해요 (`crontab -l` / `crontab -`)
+- macOS 사용자별 LaunchAgent와 Linux user crontab을 사용해요
 - 같은 사용자의 Cronly `add`/`remove`는 순서대로 처리해요. `crontab -e`나 다른 도구의 동시 편집은 이 잠금으로 보호하지 못해요.
 - systemd timer, `/etc/cron.d`는 지원하지 않아요
 - 분산 환경은 지원하지 않아요 (단일 머신 전제예요)

@@ -18,7 +18,7 @@ const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'cronly.m
 const cronlyHome = mkdtempSync(join(tmpdir(), 'cronly-integration-'))
 
 // Default env forces English to avoid inheriting system locale
-const defaultEnv = { ...process.env, CRONLY_LANG: 'en', CRONLY_HOME: cronlyHome }
+const defaultEnv = { ...process.env, CRONLY_LANG: 'en', CRONLY_HOME: cronlyHome, CRONLY_BACKEND: 'cron' }
 
 // 도중에 macOS 권한 창이 다시 떠도 응답할 시간을 둡니다. 너무 짧으면 node만 종료되고
 // 대기 중이던 crontab 프로세스가 남아, 승인되는 순간 오래된 내용을 덮어씁니다.

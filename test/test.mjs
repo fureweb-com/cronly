@@ -1,3 +1,4 @@
+import { runLaunchdTests } from './launchd.mjs'
 import assert from 'assert/strict'
 import { withCrontabLock, reapAbandonedLock } from '../lib/lock.mjs'
 import { runSandboxedIntegration } from './helpers/integration-sandbox.mjs'
@@ -56,6 +57,8 @@ const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'cronly.m
 // add() creates $CRONLY_HOME/logs; keep it out of the real home directory
 const TEST_CRONLY_HOME = mkdtempSync(join(tmpdir(), 'cronly-home-'))
 process.env.CRONLY_HOME = TEST_CRONLY_HOME
+process.env.CRONLY_BACKEND = 'cron'
+process.env.CRONLY_LAUNCHD_DIR = join(TEST_CRONLY_HOME, 'agents')
 
 function test(name, fn) {
   try {
@@ -2601,12 +2604,12 @@ await testAsync('crontab 잠금: 잘못된 경로·소유자·내용에서는 �
     const lockPath = join(ctx.dir, 'lock')
     await assert.rejects(() => withCrontabLock(async () => assert.fail(), { lockPath: join(lockPath, 'missing') }), { code: 'ENOENT' })
     writeFileSync(lockPath, '')
-    await assert.rejects(() => withCrontabLock(async () => assert.fail(), { lockPath }), /Cannot use the crontab lock/)
+    await assert.rejects(() => withCrontabLock(async () => assert.fail(), { lockPath }), /Cannot use scheduler lock/)
     rmSync(lockPath)
     mkdirSync(lockPath)
     writeFileSync(join(lockPath, 'unexpected'), '')
-    assert.throws(() => reapAbandonedLock(lockPath), /Cannot use the crontab lock/)
-    assert.throws(() => reapAbandonedLock(lockPath, process.getuid() + 1), /Cannot use the crontab lock/)
+    assert.throws(() => reapAbandonedLock(lockPath), /Cannot use scheduler lock/)
+    assert.throws(() => reapAbandonedLock(lockPath, process.getuid() + 1), /Cannot use scheduler lock/)
   })
 })
 
@@ -2655,6 +2658,8 @@ await testAsync('crontab 잠금: 부모가 강제 종료되어도 살아 있는 
     }
   })
 })
+
+await runLaunchdTests({ test, testAsync, captureLogs, withPatchedVersion })
 
 // ── 결과 ────────────────────────────────────────────────────────────────────
 
