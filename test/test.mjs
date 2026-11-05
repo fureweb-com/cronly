@@ -1,7 +1,7 @@
 import assert from 'assert/strict'
 import { decodeCronCommand } from './helpers/cron-command.mjs'
 import { spawnSync } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
@@ -2395,6 +2395,64 @@ await testAsync('cron 실행: 백슬래시·%·작은따옴표가 섞인 스크�
       }
       assert.equal(readFileSync(logPath, 'utf8'), 'stdout-ok\nstderr-ok\nstdout-ok\nstderr-ok\n')
     }
+  })
+})
+
+await testAsync('doctor: 실행 권한을 잃은 exec 스크립트와 런타임을 실패로 보고', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const script = ctx.createScript('exec-job', '#!/bin/sh\necho ok\n')
+    const runtime = ctx.createScript('runtime', '#!/bin/sh\nexec /bin/sh "$@"\n')
+    const interpreted = ctx.createScript('job.sh', 'echo ok\n')
+    assert.equal(ctx.cli(['add', script, '--reboot', '--runtime', 'exec']).status, 0)
+    assert.equal(ctx.cli(['add', interpreted, '--reboot', '--runtime', runtime]).status, 0)
+    chmodSync(script, 0o644)
+    chmodSync(runtime, 0o644)
+    const result = ctx.cli(['doctor'])
+    assert.equal(result.status, 1)
+    assert.match(result.stdout, /script must be a readable file/)
+    assert.match(result.stdout, /runtime must be an executable file/)
+    const execBlock = parseBlocks(ctx.readState()).find((b) => b.path === script)
+    const run = spawnSync('/bin/sh', ['-c', execBlock.command], { encoding: 'utf8' })
+    assert.equal(run.status, 126)
+  })
+})
+
+await testAsync('doctor: 스크립트 읽기 권한과 파일 종류를 점검', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const script = ctx.createScript('unreadable.sh', 'echo ok\n', 0o000)
+    const [unreadable] = parseBlocks(buildBlock({ schedule: '@reboot', absolutePath: script, runtime: 'sh' }))
+    assert.deepEqual(findEntryIssues(unreadable).map((i) => i.code), ['script_unusable'])
+    chmodSync(script, 0o644)
+    assert.deepEqual(findEntryIssues(unreadable), [])
+    rmSync(script)
+    mkdirSync(script)
+    assert.deepEqual(findEntryIssues(unreadable).map((i) => i.code), ['script_unusable'])
+    const [badRuntime] = parseBlocks(buildBlock({ schedule: '@reboot', absolutePath: ctx.createScript('ok.sh', ''), runtime: 'custom', runtimePath: ctx.dir }))
+    assert.deepEqual(findEntryIssues(badRuntime).map((i) => i.code), ['runtime_unusable'])
+  })
+})
+
+await testAsync('doctor: 로그 디렉터리와 파일의 쓰기 권한·파일 종류를 점검', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const script = ctx.createScript('ok.sh', '')
+    const logDir = join(ctx.dir, 'logs')
+    mkdirSync(logDir)
+    const logPath = join(logDir, 'job.log')
+    const [block] = parseBlocks(buildBlock({ schedule: '@reboot', absolutePath: script, runtime: 'sh', logPath }))
+    assert.deepEqual(findEntryIssues(block), [])
+    chmodSync(logDir, 0o500)
+    assert.deepEqual(findEntryIssues(block).map((i) => i.code), ['log_unwritable'])
+    chmodSync(logDir, 0o700)
+    writeFileSync(logPath, '', { mode: 0o400 })
+    assert.deepEqual(findEntryIssues(block).map((i) => i.code), ['log_unwritable'])
+    chmodSync(logPath, 0o600)
+    assert.deepEqual(findEntryIssues(block), [])
+    rmSync(logPath)
+    mkdirSync(logPath)
+    assert.deepEqual(findEntryIssues(block).map((i) => i.code), ['log_unwritable'])
+    rmSync(logDir, { recursive: true })
+    writeFileSync(logDir, '')
+    assert.deepEqual(findEntryIssues(block).map((i) => i.code), ['log_unwritable'])
   })
 })
 

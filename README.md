@@ -195,7 +195,7 @@ Outputs the actual crontab block for managed entries.
 cronly doctor
 ```
 
-Checks the Node.js version, the `crontab` command, crontab read access, that each managed entry's script, runtime, and log directory still exist, and that no file is registered twice. Exits with code 1 if any check fails.
+Checks the Node.js version, the `crontab` command, crontab read access, that each managed entry's script is readable (executable for `exec`), its runtime is executable, and its log destination is writable, and that no file is registered twice. Exits with code 1 if any check fails.
 
 ### macOS permission dialog
 
