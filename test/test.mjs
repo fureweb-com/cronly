@@ -1,4 +1,5 @@
 import assert from 'assert/strict'
+import { decodeCronCommand } from './helpers/cron-command.mjs'
 import { spawnSync } from 'child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
@@ -2374,6 +2375,26 @@ await testAsync('CLI: 여러 줄 스케줄도 하나의 cron 줄로 등록', asy
     const raw = ctx.readState()
     assert.equal(raw.trim().split('\n').length, 3)
     assert.equal(parseBlocks(raw)[0].schedule, '0 8 * * *')
+  })
+})
+
+await testAsync('cron 실행: 백슬래시·%·작은따옴표가 섞인 스크립트와 로그 경로', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const logDir = join(ctx.dir, "logs\\%quote'")
+    mkdirSync(logDir)
+    for (const name of [String.raw`one\%job.sh`, String.raw`two\\%job.sh`, String.raw`three\\\%job.sh`, "space 'percent%job.sh"]) {
+      const file = ctx.createScript(name, 'echo stdout-ok; echo stderr-ok >&2\n')
+      const logPath = join(logDir, `${makeId(file)}.log`)
+      const [block] = parseBlocks(buildBlock({ schedule: '@reboot', absolutePath: file, runtime: 'sh', logPath }))
+      assert.deepEqual(inspectCommand(block.command, file), { runtimeBin: '/bin/sh', logPath })
+      for (const debian of [false, true]) {
+        const result = spawnSync('/bin/sh', ['-c', decodeCronCommand(block.command, debian)], {
+          cwd: homedir(), env: { PATH: '/usr/bin:/bin', HOME: homedir() }, encoding: 'utf8',
+        })
+        assert.equal(result.status, 0, `${name}: ${result.stderr}`)
+      }
+      assert.equal(readFileSync(logPath, 'utf8'), 'stdout-ok\nstderr-ok\nstdout-ok\nstderr-ok\n')
+    }
   })
 })
 
