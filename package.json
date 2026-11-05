@@ -16,7 +16,8 @@
   "scripts": {
     "test": "node test/test.mjs",
     "test:coverage": "c8 --100 --reporter=text --reporter=lcov node test/test.mjs",
-    "test:integration": "node test/integration.mjs"
+    "test:integration": "node test/integration.mjs",
+    "test:launchd": "node test/launchd-integration.mjs"
   },
   "repository": {
     "type": "git",

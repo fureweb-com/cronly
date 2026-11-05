@@ -8,7 +8,10 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     permissions:
       contents: read
@@ -31,6 +34,10 @@ jobs:
 
       - name: Run tests with coverage
         run: npm run test:coverage
+
+      - name: Verify real launchd jobs
+        if: runner.os == 'macOS'
+        run: npm run test:launchd
 
       - name: Upload coverage to Codecov
         if: env.CODECOV_TOKEN != ''

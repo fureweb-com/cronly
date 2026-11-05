@@ -9,7 +9,7 @@
 
 轻松调度脚本 — 无需 cron 语法。
 直接表达你的意思：每天 8 点、工作日 9 点、每 4 小时。
-需要时也可以直接使用 cron expression。Cronly 会在底层安全地管理 crontab 条目。
+也可直接使用 cron expression。macOS 使用 launchd，Linux 使用 cron。
 
 [English](./README.md) | [한국어](./README.ko.md) | [日本語](./README.ja.md) | **[中文](./README.zh.md)**
 
@@ -69,7 +69,7 @@ cronly list
 ## 特性
 
 - 零外部 npm 依赖 — 仅使用 Node.js 内置模块
-- 无需 DB、服务器或守护进程 — 实际 crontab 是唯一数据源
+- 无需独立 DB、服务器或守护进程 — 以 LaunchAgent 文件或 crontab 为管理源
 - 管理条目带有元数据注释，与现有手动条目完全隔离
 - 包含空格、单引号和 `%` 的路径会被安全地进行 shell 引用处理
 - 任务在脚本所在目录中运行，输出记录到 `~/.cronly/logs/<id>.log`
@@ -93,6 +93,24 @@ npm link
 ```
 
 全局安装后，运行命令仍然是 `cronly`。
+
+## macOS 和 Linux 调度器
+
+macOS 默认使用用户级 `launchd` LaunchAgent，Linux 使用 cron。命令和计划选项保持一致。macOS 为每个任务创建 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`，直接传递执行参数，不经过 shell。注册失败时恢复先前配置。
+
+LaunchAgent 需要 GUI 登录会话，并在该用户登录期间运行。macOS 的 `--reboot`/`@reboot` 在注册、重新注册及登录时执行；cron 保留开机执行语义。睡眠期间错过的日历任务可能在唤醒时合并执行一次。受保护文件仍受 macOS 权限限制。
+
+列表、范围、步长及别名会转换为原生日历计划，并保留日期和星期的 OR 语义。`0 0 */2 * 1` 这类带步长的日期通配符与受限星期组合，或相反组合，无法精确表达，因此拒绝注册。超过 4,096 个日历组合的计划也会被拒绝。请简化计划或明确指定 `CRONLY_BACKEND=cron`。
+
+旧 cron 任务不会自动迁移。`list`、`print`、`doctor` 会提示旧任务，并阻止同一文件在两个调度器中重复注册。迁移示例：
+
+```bash
+CRONLY_BACKEND=cron cronly list
+CRONLY_BACKEND=cron cronly remove ./job.mjs
+cronly add ./job.mjs --daily 08:00
+```
+
+使用 `CRONLY_BACKEND=cron|launchd` 可明确选择调度器。`CRONLY_HOME` 只改变日志位置，不影响默认 LaunchAgents 目录。测试可用 `CRONLY_LAUNCHD_DIR` 隔离 plist；位于 `~/Library/LaunchAgents` 之外的文件不会在下次登录时自动加载。
 
 ## 使用方法
 
@@ -187,7 +205,7 @@ cronly remove --id a1b2c3d4
 cronly print
 ```
 
-输出管理中条目的实际 crontab 块。
+输出受管理任务的 LaunchAgent plist 或 cron 块。
 
 ### 环境检查
 
@@ -195,9 +213,9 @@ cronly print
 cronly doctor
 ```
 
-检查 Node.js 版本、`crontab` 命令、crontab 读取权限、每个管理条目的脚本是否可读取或执行、运行时是否可执行、日志是否可写入，以及同一文件是否被重复注册。任何一项失败时以退出码 1 结束。
+检查 Node.js、脚本及运行时权限、日志写入权限和重复注册。macOS 还检查登录会话、LaunchAgent 加载状态及上次退出状态；cron 检查 crontab 访问。旧 cron 任务会显示迁移提示。任何检查失败均以退出码 1 结束。
 
-### macOS 权限对话框
+### macOS 权限对话框 (`CRONLY_BACKEND=cron`)
 
 在 macOS 上，没有完全磁盘访问权限的应用修改 crontab 时会弹出权限对话框，`cronly add` 和 `cronly remove` 会一直等待到你作出响应。对话框可能被其他窗口遮挡，因此如果耗时超过几秒，Cronly 会输出提示。若不想看到对话框，请为运行 Cronly 的应用授予完全磁盘访问权限（系统设置 > 隐私与安全性 > 完全磁盘访问权限）。
 
@@ -221,7 +239,7 @@ cron 以最精简的环境启动任务，因此在终端中正常运行的脚本
 
 cron 会按 `add` 时传入的路径运行，因此在 `current -> releases/v2` 这样的符号链接部署结构中，也会一直跟随链接。`remove <file>` 会删除该文件的所有条目。
 
-### crontab 内部格式
+### crontab 内部格式 (cron)
 
 ```crontab
 # 现有手动条目（不做修改）
@@ -238,6 +256,10 @@ cron 会按 `add` 时传入的路径运行，因此在 `current -> releases/v2` 
 
 ```bash
 npm test
+# macOS: real launchd daemon, isolated jobs and cleanup
+npm run test:launchd
+# Explicit legacy cron integration test
+npm run test:integration
 ```
 
 ## 项目结构
@@ -247,6 +269,10 @@ npm test
 ├── lib/
 │   ├── cli.mjs                # argv 解析
 │   ├── commands.mjs           # add/list/remove/print/doctor 实现
+│   ├── backend.mjs            # macOS launchd / Linux cron
+│   ├── launchd.mjs            # LaunchAgent lifecycle
+│   ├── launchd-schedule.mjs   # native calendar conversion
+│   ├── job.mjs                # shared runtime / diagnostics
 │   ├── crontab.mjs            # crontab 读写（child_process）
 │   ├── entry.mjs              # 条目构建/解析/去重
 │   ├── schedule.mjs           # 调度标志 → cron 表达式转换
@@ -254,6 +280,7 @@ npm test
 │   └── i18n/                  # 消息和帮助文本（en, ko, ja, zh）
 ├── test/
 │   ├── test.mjs               # 单元测试
+│   ├── launchd-integration.mjs # real launchd daemon test
 │   └── integration.mjs        # 集成测试（实际 crontab）
 ├── package.json
 └── LICENSE
@@ -271,7 +298,7 @@ npm test
 
 ## 限制
 
-- 仅支持用户 crontab（`crontab -l` / `crontab -`）
+- 支持 macOS 用户级 LaunchAgent 和 Linux 用户 crontab
 - 同一用户的 Cronly `add`/`remove` 按顺序处理。通过 `crontab -e` 或其他工具进行的并发编辑不受此锁保护。
 - 不支持 systemd timer 和 `/etc/cron.d`
 - 不支持分布式环境（仅限单机）

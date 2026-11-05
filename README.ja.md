@@ -9,7 +9,7 @@
 
 スクリプトをかんたんに予約実行できます — cron 構文は不要です。
 毎日8時、平日9時、4時間ごとのように、やりたいことをそのまま指定できます。
-必要なら cron expression も直接使え、内部では crontab に安全に登録して管理します。
+必要なら cron expression も直接使えます。macOS は launchd、Linux は cron に登録します。
 
 [English](./README.md) | [한국어](./README.ko.md) | **[日本語](./README.ja.md)** | [中文](./README.zh.md)
 
@@ -69,7 +69,7 @@ cronly list
 ## 特徴
 
 - 外部 npm dependency ゼロ — Node.js 組み込みモジュールのみ使用
-- DB、サーバー、daemon 不要 — 実際の crontab が source of truth
+- 専用 DB・サーバー・daemon は不要 — LaunchAgent ファイルまたは crontab が管理元です
 - 管理エントリにメタデータコメントを付与し、既存の手動エントリと完全に隔離
 - スペース、シングルクォート、`%` を含むパスを安全にシェルクォート処理
 - ジョブはスクリプトのあるディレクトリで実行され、出力は `~/.cronly/logs/<id>.log` に残ります
@@ -93,6 +93,24 @@ npm link
 ```
 
 グローバルインストール後の実行コマンドは `cronly` です。
+
+## macOS と Linux のスケジューラー
+
+macOS はユーザー単位の `launchd` LaunchAgent、Linux は cron を既定で使用します。コマンドとスケジュールフラグは共通です。macOS はジョブごとに `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` を作成し、シェルを介さず引数を渡します。登録に失敗すると以前の設定を復元します。
+
+LaunchAgent は GUI ログインセッションが必要で、そのユーザーのログイン中に動作します。macOS の `--reboot`/`@reboot` は登録・再登録・ログイン時に実行します。cron は起動時実行の意味を維持します。スリープ中のカレンダー予定は復帰時に1回実行される場合があります。保護されたファイルには macOS のアクセス権が適用されます。
+
+リスト・範囲・ステップ・別名をネイティブのカレンダーに変換し、日付と曜日の OR 条件も保持します。`0 0 */2 * 1` のようにステップ付きの日付ワイルドカードと限定曜日を組み合わせる条件や、その逆は正確に表現できないため拒否します。4,096 を超えるカレンダーの組み合わせも拒否します。予定を簡略化するか、`CRONLY_BACKEND=cron` を明示してください。
+
+以前の cron ジョブは自動移行しません。`list`、`print`、`doctor` で案内し、同じファイルの二重登録を防ぎます。移行例：
+
+```bash
+CRONLY_BACKEND=cron cronly list
+CRONLY_BACKEND=cron cronly remove ./job.mjs
+cronly add ./job.mjs --daily 08:00
+```
+
+`CRONLY_BACKEND=cron|launchd` で明示的に選択できます。`CRONLY_HOME` はログの場所を変え、LaunchAgents の既定位置には影響しません。テストでは `CRONLY_LAUNCHD_DIR` で plist を隔離できますが、`~/Library/LaunchAgents` 外のファイルは次のログイン時に自動ロードされません。
 
 ## 使い方
 
@@ -187,7 +205,7 @@ cronly remove --id a1b2c3d4
 cronly print
 ```
 
-管理中のエントリの実際の crontab ブロックを出力します。
+管理ジョブの LaunchAgent plist または cron ブロックを出力します。
 
 ### 環境チェック
 
@@ -195,9 +213,9 @@ cronly print
 cronly doctor
 ```
 
-Node.js バージョン、`crontab` コマンド、crontab の読み取り権限、各管理エントリのスクリプトを読み取り・実行できるか、ランタイムを実行できるか、ログを書き込めるか、同じファイルが二重に登録されていないかを点検します。1つでも失敗すると終了コード 1 で終わります。
+Node.js、スクリプトとランタイムの権限、ログの書き込み権限、重複登録を点検します。macOS はログインセッション・LaunchAgent のロード状態・前回の終了状態、cron は crontab へのアクセスを確認します。以前の cron ジョブは移行案内を表示します。問題がある場合は終了コード 1 になります。
 
-### macOS の許可ダイアログ
+### macOS の許可ダイアログ (`CRONLY_BACKEND=cron`)
 
 macOS では、フルディスクアクセスのないアプリが crontab を変更すると許可ダイアログが表示され、`cronly add` と `cronly remove` は応答があるまで待機します。ダイアログは他のウインドウの後ろに隠れることがあるため、数秒以上かかると案内を表示します。ダイアログなしで使うには、Cronly を実行するアプリにフルディスクアクセスを許可してください（システム設定 > プライバシーとセキュリティ > フルディスクアクセス）。
 
@@ -221,7 +239,7 @@ cron は最小限の環境でジョブを起動するため、ターミナルで
 
 cron は `add` に渡したパスをそのまま実行するため、`current -> releases/v2` のようなシンボリックリンクによるデプロイ構成でも、リンクをたどり続けます。`remove <file>` はそのファイルのエントリをすべて削除します。
 
-### crontab 内部形式
+### crontab 内部形式 (cron)
 
 ```crontab
 # 既存の手動エントリ（変更なし）
@@ -238,6 +256,10 @@ cron は `add` に渡したパスをそのまま実行するため、`current ->
 
 ```bash
 npm test
+# macOS: real launchd daemon, isolated jobs and cleanup
+npm run test:launchd
+# Explicit legacy cron integration test
+npm run test:integration
 ```
 
 ## プロジェクト構造
@@ -247,6 +269,10 @@ npm test
 ├── lib/
 │   ├── cli.mjs                # argv パース
 │   ├── commands.mjs           # add/list/remove/print/doctor 実装
+│   ├── backend.mjs            # macOS launchd / Linux cron
+│   ├── launchd.mjs            # LaunchAgent lifecycle
+│   ├── launchd-schedule.mjs   # native calendar conversion
+│   ├── job.mjs                # shared runtime / diagnostics
 │   ├── crontab.mjs            # crontab 読み書き（child_process）
 │   ├── entry.mjs              # エントリ生成/パース/dedupe
 │   ├── schedule.mjs           # スケジュールフラグ → cron 式の変換
@@ -254,6 +280,7 @@ npm test
 │   └── i18n/                  # メッセージとヘルプ（en, ko, ja, zh）
 ├── test/
 │   ├── test.mjs               # ユニットテスト
+│   ├── launchd-integration.mjs # real launchd daemon test
 │   └── integration.mjs        # 統合テスト（実際の crontab）
 ├── package.json
 └── LICENSE
@@ -271,7 +298,7 @@ npm test
 
 ## 制約事項
 
-- user crontab のみ対応（`crontab -l` / `crontab -`）
+- macOS のユーザー単位 LaunchAgent と Linux の user crontab に対応
 - 同じユーザーの Cronly `add`/`remove` は順番に処理します。`crontab -e` や他のツールによる同時編集は、このロックの対象外です。
 - systemd timer、`/etc/cron.d` 非対応
 - 分散環境非対応（単一マシン前提）
