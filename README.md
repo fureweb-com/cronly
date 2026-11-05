@@ -272,6 +272,7 @@ npm test
 ## Limitations
 
 - User crontab only (`crontab -l` / `crontab -`)
+- Concurrent Cronly `add`/`remove` commands are serialized per user. Concurrent edits through `crontab -e` or other tools are outside this lock.
 - No systemd timer or `/etc/cron.d` support
 - Single machine only (no distributed environments)
 - No overlap execution prevention
