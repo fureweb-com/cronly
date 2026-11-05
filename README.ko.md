@@ -272,6 +272,7 @@ npm test
 ## 제약 사항
 
 - user crontab만 지원해요 (`crontab -l` / `crontab -`)
+- 같은 사용자의 Cronly `add`/`remove`는 순서대로 처리해요. `crontab -e`나 다른 도구의 동시 편집은 이 잠금으로 보호하지 못해요.
 - systemd timer, `/etc/cron.d`는 지원하지 않아요
 - 분산 환경은 지원하지 않아요 (단일 머신 전제예요)
 - overlap execution 방지는 포함하지 않아요

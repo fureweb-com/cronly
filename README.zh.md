@@ -272,6 +272,7 @@ npm test
 ## 限制
 
 - 仅支持用户 crontab（`crontab -l` / `crontab -`）
+- 同一用户的 Cronly `add`/`remove` 按顺序处理。通过 `crontab -e` 或其他工具进行的并发编辑不受此锁保护。
 - 不支持 systemd timer 和 `/etc/cron.d`
 - 不支持分布式环境（仅限单机）
 - 不包含 overlap execution 防止

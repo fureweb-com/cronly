@@ -1,8 +1,9 @@
 import assert from 'assert/strict'
+import { withCrontabLock, reapAbandonedLock } from '../lib/lock.mjs'
 import { runSandboxedIntegration } from './helpers/integration-sandbox.mjs'
 import { decodeCronCommand } from './helpers/cron-command.mjs'
-import { spawnSync } from 'child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { spawn, spawnSync } from 'child_process'
+import { chmodSync, existsSync, readdirSync, utimesSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
@@ -147,6 +148,7 @@ if [ "$1" = "-l" ]; then
   exit 0
 fi
 if [ "$1" = "-" ]; then
+  if [ -n "$MOCK_WRITE_STARTED" ]; then touch "$MOCK_WRITE_STARTED"; fi
   if [ -n "$MOCK_WRITE_DELAY" ]; then
     sleep "$MOCK_WRITE_DELAY"
   fi
@@ -190,6 +192,7 @@ exit 1
     'MOCK_READ_FAIL',
     'MOCK_WRITE_FAIL',
     'MOCK_WRITE_DELAY',
+    'MOCK_WRITE_STARTED',
     'MOCK_WHICH_FAIL',
     'MOCK_BIN_DIR',
     'CRONLY_LANG',
@@ -203,6 +206,7 @@ exit 1
   process.env.CRONLY_LANG = 'en'
   process.env.CRONLY_HOME = join(dir, 'cronly-home')
   process.env.MOCK_WRITE_LOG = writeLogFile
+  delete process.env.MOCK_WRITE_STARTED
   if (noCrontab) process.env.MOCK_NO_CRONTAB = '1'
   else delete process.env.MOCK_NO_CRONTAB
   if (readFail) process.env.MOCK_READ_FAIL = readFail
@@ -241,8 +245,19 @@ exit 1
       writeFileSync(filePath, content, { mode })
       return filePath
     },
+    cliAsync(args, env = {}) {
+      return new Promise((resolve, reject) => {
+        const proc = spawn(process.execPath, [CLI, ...args], { env: { ...process.env, ...env } })
+        let stdout = ''
+        let stderr = ''
+        proc.stdout.on('data', (data) => { stdout += data })
+        proc.stderr.on('data', (data) => { stderr += data })
+        proc.on('error', reject)
+        proc.on('close', (status) => resolve({ status, stdout, stderr }))
+      })
+    },
     cli(args, env = {}) {
-      return spawnSync('node', [CLI, ...args], {
+      return spawnSync(process.execPath, [CLI, ...args], {
         cwd: resolve('.'),
         encoding: 'utf8',
         env: { ...process.env, ...env },
@@ -2481,6 +2496,164 @@ test('통합 테스트 안전성: 복원 실패를 성공으로 종료하지 않
   assert.equal(result.status, 1)
   assert.match(result.stderr, /crontab 복원 실패: restore denied/)
   assert.match(result.stdout, /33개 통과, 1개 실패/)
+})
+
+async function waitUntil(check) {
+  const started = Date.now()
+  while (!check()) {
+    assert.ok(Date.now() - started < 5000, 'timed out waiting for child process')
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
+
+await testAsync('동시 CLI 등록: 서로 다른 CRONLY_HOME에서도 두 작업과 수동 항목을 모두 보존', async () => {
+  await withMockCrontabEnv({ initialContent: '# manual\n0 0 * * * /bin/true\n', writeDelay: '0.2' }, async (ctx) => {
+    const a = ctx.createScript('a.mjs', '')
+    const b = ctx.createScript('b.mjs', '')
+    const writing = join(ctx.dir, 'writing')
+    const first = ctx.cliAsync(['add', a, '--daily', '08:00'], { MOCK_WRITE_STARTED: writing })
+    await waitUntil(() => existsSync(writing))
+    const second = ctx.cliAsync(['add', b, '--daily', '09:00'], { CRONLY_HOME: join(ctx.dir, 'other-home'), TMPDIR: ctx.dir })
+    for (const result of await Promise.all([first, second])) assert.equal(result.status, 0, result.stderr)
+    assert.deepEqual(parseBlocks(ctx.readState()).map((b) => b.path).sort(), [a, b].sort())
+    assert.match(ctx.readState(), /^# manual\n0 0 \* \* \* \/bin\/true\n/)
+  })
+})
+
+await testAsync('동시 CLI 삭제·등록: 삭제한 항목을 되살리지 않고 새 작업을 보존', async () => {
+  await withMockCrontabEnv({ writeDelay: '0.2' }, async (ctx) => {
+    const a = ctx.createScript('keep.mjs', '')
+    const b = ctx.createScript('remove.mjs', '')
+    const original = buildBlock({ schedule: '@reboot', absolutePath: b, runtime: 'node' })
+    ctx.setState(`# manual\n${original}\n`)
+    const writing = join(ctx.dir, 'writing')
+    const first = ctx.cliAsync(['remove', b], { MOCK_WRITE_STARTED: writing })
+    await waitUntil(() => existsSync(writing))
+    const second = ctx.cliAsync(['add', a, '--reboot'])
+    for (const result of await Promise.all([first, second])) assert.equal(result.status, 0, result.stderr)
+    assert.deepEqual(parseBlocks(ctx.readState()).map((b) => b.path), [a])
+    assert.ok(ctx.readState().startsWith('# manual\n'))
+  })
+})
+
+await testAsync('crontab 잠금: 같은 프로세스의 동시 작업을 직렬화하고 실패 후 해제', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const lockPath = join(ctx.dir, 'lock')
+    let active = 0
+    let maximum = 0
+    const results = await Promise.all([1, 2, 3].map((n) => withCrontabLock(async () => {
+      active++
+      maximum = Math.max(maximum, active)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      active--
+      return n
+    }, { lockPath, pollMs: 1 })))
+    assert.deepEqual(results, [1, 2, 3])
+    assert.equal(maximum, 1)
+    await assert.rejects(() => withCrontabLock(async () => { throw new Error('write failed') }, { lockPath }), /write failed/)
+    assert.equal(existsSync(lockPath), false)
+    assert.equal(await withCrontabLock(async () => 'recovered', { lockPath }), 'recovered')
+  })
+})
+
+await testAsync('crontab 잠금: 종료된 소유자와 오래된 빈 잠금만 회수', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const lockPath = join(ctx.dir, 'lock')
+    const dead = spawnSync(process.execPath, ['-e', ''])
+    mkdirSync(lockPath)
+    writeFileSync(join(lockPath, `owner-${dead.pid}-abcd`), '')
+    assert.equal(await withCrontabLock(async () => 'recovered', { lockPath, pollMs: 1 }), 'recovered')
+    mkdirSync(lockPath)
+    await assert.rejects(() => withCrontabLock(async () => assert.fail('fresh lock acquired'), { lockPath, timeoutMs: 0 }), /Another Cronly/)
+    const old = new Date(Date.now() - 60000)
+    utimesSync(lockPath, old, old)
+    assert.equal(await withCrontabLock(async () => 'empty recovered', { lockPath, pollMs: 1 }), 'empty recovered')
+    reapAbandonedLock(lockPath) // A competing reaper may already have removed it.
+  })
+})
+
+await testAsync('crontab 잠금: 살아 있는 소유자의 잠금을 시간 초과로 보고', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const lockPath = join(ctx.dir, 'lock')
+    mkdirSync(lockPath)
+    const owner = join(lockPath, `owner-${process.pid}-abcd`)
+    writeFileSync(owner, '')
+    await assert.rejects(() => withCrontabLock(async () => assert.fail('live lock acquired'), { lockPath, timeoutMs: 0 }), /Another Cronly/)
+    assert.equal(existsSync(owner), true)
+    const dead = spawnSync(process.execPath, ['-e', ''])
+    const childOwner = join(lockPath, `owner-${dead.pid}-abcd`)
+    writeFileSync(childOwner, '')
+    reapAbandonedLock(lockPath)
+    assert.ok(existsSync(childOwner), 'live parent must retain a child marker until its close callback')
+    const originalKill = process.kill
+    process.kill = () => { throw Object.assign(new Error('denied'), { code: 'EPERM' }) }
+    try {
+      assert.throws(() => reapAbandonedLock(lockPath), /denied/)
+      assert.equal(existsSync(owner), true)
+    } finally {
+      process.kill = originalKill
+    }
+  })
+})
+
+await testAsync('crontab 잠금: 잘못된 경로·소유자·내용에서는 작업을 시작하지 않음', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const lockPath = join(ctx.dir, 'lock')
+    await assert.rejects(() => withCrontabLock(async () => assert.fail(), { lockPath: join(lockPath, 'missing') }), { code: 'ENOENT' })
+    writeFileSync(lockPath, '')
+    await assert.rejects(() => withCrontabLock(async () => assert.fail(), { lockPath }), /Cannot use the crontab lock/)
+    rmSync(lockPath)
+    mkdirSync(lockPath)
+    writeFileSync(join(lockPath, 'unexpected'), '')
+    assert.throws(() => reapAbandonedLock(lockPath), /Cannot use the crontab lock/)
+    assert.throws(() => reapAbandonedLock(lockPath, process.getuid() + 1), /Cannot use the crontab lock/)
+  })
+})
+
+await testAsync('crontab 잠금: 명령을 찾지 못해도 잠금을 해제', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const previousPath = process.env.PATH
+    const lockPath = join(ctx.dir, 'lock')
+    process.env.PATH = '/definitely-missing-path'
+    try {
+      await withCrontabLock(async (trackProcess) => {
+        await assert.rejects(() => readCrontab({ trackProcess }), /crontab -l failed/)
+        await assert.rejects(() => writeCrontab('', { trackProcess }), /crontab - failed/)
+      }, { lockPath })
+      assert.equal(existsSync(lockPath), false)
+    } finally {
+      process.env.PATH = previousPath
+    }
+  })
+})
+
+await testAsync('crontab 잠금: 부모가 강제 종료되어도 살아 있는 crontab 자식의 잠금을 보존', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const lockPath = join(ctx.dir, 'lock')
+    const helper = join(dirname(fileURLToPath(import.meta.url)), 'helpers', 'lock-holder.mjs')
+    const holder = spawn(process.execPath, [helper, lockPath], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const exited = new Promise((resolve) => holder.once('exit', resolve))
+    let output = ''
+    let childPid
+    holder.stdout.on('data', (data) => { output += data })
+    try {
+      await waitUntil(() => output.includes('\n'))
+      childPid = JSON.parse(output).childPid
+      holder.kill('SIGKILL')
+      await exited
+      await assert.rejects(() => withCrontabLock(async () => assert.fail('child still owns lock'), { lockPath, timeoutMs: 0 }), /Another Cronly/)
+      assert.ok(readdirSync(lockPath).some((name) => name.startsWith(`owner-${childPid}-`)))
+      process.kill(childPid, 'SIGKILL')
+      await waitUntil(() => {
+        try { process.kill(childPid, 0); return false } catch (err) { return err.code === 'ESRCH' }
+      })
+      childPid = null
+      assert.equal(await withCrontabLock(async () => 'recovered after child exit', { lockPath, pollMs: 1 }), 'recovered after child exit')
+    } finally {
+      holder.kill('SIGKILL')
+      if (childPid) { try { process.kill(childPid, 'SIGKILL') } catch {} }
+    }
+  })
 })
 
 // ── 결과 ────────────────────────────────────────────────────────────────────

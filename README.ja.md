@@ -272,6 +272,7 @@ npm test
 ## 制約事項
 
 - user crontab のみ対応（`crontab -l` / `crontab -`）
+- 同じユーザーの Cronly `add`/`remove` は順番に処理します。`crontab -e` や他のツールによる同時編集は、このロックの対象外です。
 - systemd timer、`/etc/cron.d` 非対応
 - 分散環境非対応（単一マシン前提）
 - overlap execution 防止なし
