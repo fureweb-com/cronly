@@ -9,7 +9,7 @@
 
 Schedule scripts easily — no cron syntax needed.
 Say what you mean: every day at 8, weekdays at 9, every 4 hours.
-Cron expressions are still available when you need them. Cronly safely manages the crontab entries underneath.
+Cron expressions are still available when you need them. Cronly uses launchd on macOS and cron on Linux.
 
 **[English](./README.md)** | [한국어](./README.ko.md) | [日本語](./README.ja.md) | [中文](./README.zh.md)
 
@@ -61,7 +61,7 @@ Managing crontab manually with `crontab -e` leads to common problems:
 
 | Manual crontab | Cronly |
 |---|---|
-| Duplicate entries possible | Auto dedupe by absolute path |
+| Duplicate entries possible | Auto dedupe by file, across symlinks and letter case |
 | Risk of editing other entries | Only touches managed blocks |
 | Hard to identify entries | Metadata comments for identification |
 | Manual sync on changes | `add` works as upsert |
@@ -69,9 +69,10 @@ Managing crontab manually with `crontab -e` leads to common problems:
 ## Features
 
 - Zero external npm dependencies — only Node.js built-in modules
-- No DB, server, or daemon — the real crontab is the source of truth
-- Managed entries are wrapped in metadata comments, fully isolated from manual entries
-- Paths with spaces, single quotes, and `%` are safely shell-quoted
+- No separate DB, server, or daemon — native LaunchAgent files or crontab are the source of truth
+- Managed jobs have metadata and are isolated from unrelated scheduler entries
+- Paths with spaces, single quotes, and `%` use native arguments on macOS and safe quoting for cron
+- Jobs run from the script's directory and log their output to `~/.cronly/logs/<id>.log`
 - Supports cron aliases (`@reboot`, `@daily`, `@weekly`, etc.)
 - ESM-based (`"type": "module"`)
 - Node.js >= 14.8.0
@@ -92,6 +93,24 @@ npm link
 ```
 
 After installing globally, run the CLI as `cronly`.
+
+## macOS and Linux schedulers
+
+macOS uses a per-user `launchd` LaunchAgent by default; Linux uses cron. Commands and schedule flags stay the same. macOS stores each job in `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` and passes executable arguments directly, without a shell. Registration failures restore the previous configuration.
+
+LaunchAgents require a GUI login session and run while that user is logged in. `--reboot`/`@reboot` runs on registration, re-registration, and login on macOS; cron retains its boot semantics. Calendar jobs missed during sleep can run once on wake. Protected files remain subject to macOS permissions.
+
+Lists, ranges, steps, and aliases are converted to native calendar intervals. Date/weekday OR semantics are preserved. A stepped wildcard date combined with a restricted weekday (or the reverse), such as `0 0 */2 * 1`, cannot be represented exactly and is rejected. Schedules exceeding 4,096 calendar combinations are also rejected. Simplify the schedule or explicitly choose `CRONLY_BACKEND=cron`.
+
+Existing cron jobs are not automatically migrated. `list`, `print`, and `doctor` identify legacy cron jobs; adding the same script to both schedulers is blocked. Move a script explicitly:
+
+```bash
+CRONLY_BACKEND=cron cronly list
+CRONLY_BACKEND=cron cronly remove ./job.mjs
+cronly add ./job.mjs --daily 08:00
+```
+
+`CRONLY_BACKEND=cron|launchd` selects a scheduler explicitly. `CRONLY_HOME` changes logs, not the normal LaunchAgents location. Tests can set `CRONLY_LAUNCHD_DIR` to isolate plist files; files outside `~/Library/LaunchAgents` are not automatically loaded on the next login.
 
 ## Usage
 
@@ -117,6 +136,8 @@ cronly add ./startup.sh --reboot
 cronly add ./custom-binary --daily 08:00 --runtime exec
 ```
 
+`--runtime` also accepts another interpreter by name or path (for example `--runtime python3`). It is resolved to an absolute path when you run `add`, so cron can find it. Options can be written as `--daily 08:00` or `--daily=08:00`.
+
 Re-adding the same file **updates instead of duplicating**:
 
 ```bash
@@ -141,6 +162,8 @@ cronly add ./backup.sh --daily 03:00
 | `--reboot` | `--reboot` | `@reboot` |
 
 Weekday tokens: `sun`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat` (case-insensitive)
+
+`--every-hours` accepts 1, 2, 3, 4, 6, 8, 12 and `--every-minutes` accepts 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30. cron restarts `*/N` every day (hours) or every hour (minutes), so other values would not repeat at even intervals. Use `--schedule` if you need them anyway.
 
 ### Cron expressions (advanced)
 
@@ -182,7 +205,7 @@ cronly remove --id a1b2c3d4
 cronly print
 ```
 
-Outputs the actual crontab block for managed entries.
+Outputs the LaunchAgent plist or cron block for managed jobs.
 
 ### Health check
 
@@ -190,14 +213,31 @@ Outputs the actual crontab block for managed entries.
 cronly doctor
 ```
 
-Checks Node.js version, `crontab` command availability, and crontab read access.
+Checks Node.js, script/runtime permissions, writable logs, and duplicate registrations. On macOS it also checks the login session, loaded LaunchAgents, and the last exit status; cron checks crontab access instead. Legacy cron jobs are reported for explicit migration. Any failed check exits with code 1.
+
+### macOS permission dialog (`CRONLY_BACKEND=cron`)
+
+On macOS, changing the crontab from an app without Full Disk Access opens a permission dialog, and `cronly add` and `cronly remove` wait until you answer it. The dialog can open behind other windows, so Cronly prints a reminder when the change takes more than a few seconds. To skip the dialog, grant Full Disk Access to the app you run Cronly from (System Settings > Privacy & Security > Full Disk Access).
+
+## How scheduled jobs run
+
+cron starts jobs with a minimal environment, so a script that works in your terminal can fail silently under cron. Cronly sets up each job so it behaves more like a manual run:
+
+- **Working directory**: the job runs from the script's directory, so relative paths such as `.env` or `./config.json` resolve.
+- **PATH**: the directory of the Node.js that ran `cronly add` comes first, followed by `/usr/bin:/bin`, so shell scripts can call `node`, `npm`, and `npx`. Call other tools by absolute path, or set `PATH` in your script.
+- **Logs**: stdout and stderr are appended to `~/.cronly/logs/<id>.log`. Set `CRONLY_HOME` to use a different base directory. Logs are not rotated.
+- **Node.js version**: jobs run with the exact Node.js binary that registered them (for example an nvm version directory). If you remove that version, `cronly doctor` reports it; run `cronly add` again to switch to the current one.
+
+Entries registered by an older version of Cronly keep their old command line until you run `cronly add` for them again.
 
 ## How duplicate prevention works
 
 1. Normalize the script file to an **absolute path** (`path.resolve`)
 2. Generate a **dedupe id** from the first 8 hex chars of its SHA-256 hash
-3. On `add`, if a block with the same id exists, **replace it** (upsert)
+3. On `add`, **replace** the block with the same id, along with any block whose path points to the same file (same inode, such as a symlink or a different letter case on macOS) (upsert)
 4. Otherwise, **append** a new block
+
+cron runs the path you passed to `add`, so a symlinked deploy such as `current -> releases/v2` keeps following the link. `remove <file>` removes every entry for that file.
 
 ### Crontab internal format
 
@@ -206,7 +246,7 @@ Checks Node.js version, `crontab` command availability, and crontab read access.
 0 * * * * /usr/bin/some-other-job
 
 # [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
-0 2 * * * '/bin/sh' '/home/user/backup.sh'
+0 2 * * * cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
 # [cronly:end] id=a1b2c3d4
 ```
 
@@ -216,6 +256,10 @@ Managed entries are wrapped in `# [cronly:begin]` / `# [cronly:end]` blocks, com
 
 ```bash
 npm test
+# macOS: real launchd daemon, isolated jobs and cleanup
+npm run test:launchd
+# Explicit legacy cron integration test
+npm run test:integration
 ```
 
 ## Project structure
@@ -223,12 +267,20 @@ npm test
 ```
 ├── bin/cronly.mjs             # CLI entry point
 ├── lib/
-│   ├── cli.mjs                # argv parsing, help text
+│   ├── cli.mjs                # argv parsing
 │   ├── commands.mjs           # add/list/remove/print/doctor
+│   ├── backend.mjs            # macOS launchd / Linux cron
+│   ├── launchd.mjs            # LaunchAgent lifecycle
+│   ├── launchd-schedule.mjs   # native calendar conversion
+│   ├── job.mjs                # shared runtime / diagnostics
 │   ├── crontab.mjs            # crontab read/write (child_process)
-│   └── entry.mjs              # entry build/parse/dedupe
+│   ├── entry.mjs              # entry build/parse/dedupe
+│   ├── schedule.mjs           # schedule flags → cron expression
+│   ├── i18n.mjs               # locale detection, message lookup
+│   └── i18n/                  # messages and help text (en, ko, ja, zh)
 ├── test/
 │   ├── test.mjs               # Unit tests
+│   ├── launchd-integration.mjs # real launchd daemon test
 │   └── integration.mjs        # Integration tests (real crontab)
 ├── package.json
 └── LICENSE
@@ -238,19 +290,21 @@ npm test
 
 - **dry-run mode**: Preview changes without modifying crontab
 - **import/export**: Backup/restore managed entries as JSON
-- **log path**: Auto-append `>> /path/to/log 2>&1`
-- **environment variables**: Set PATH and other env vars for cron execution
+- **log options**: Custom log path and log rotation
+- **environment variables**: Set custom env vars for cron execution
 - **MAILTO**: Per-entry error notification email
 - **groups/tags**: Batch manage entries by group
-- **cron expression validation**: Pre-validate schedule values
 - **overlap prevention**: flock-based concurrent execution guard
 
 ## Limitations
 
-- User crontab only (`crontab -l` / `crontab -`)
+- Per-user LaunchAgents on macOS; user crontab on Linux
+- Concurrent Cronly `add`/`remove` commands are serialized per user. Concurrent edits through `crontab -e` or other tools are outside this lock.
 - No systemd timer or `/etc/cron.d` support
 - Single machine only (no distributed environments)
 - No overlap execution prevention
+- Logs are appended without rotation
+- Cron commands longer than 999 bytes are rejected (Vixie-based cron truncates them)
 - Paths containing newline or carriage return characters are not supported
 
 ## License

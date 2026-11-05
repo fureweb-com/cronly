@@ -9,7 +9,7 @@
 
 スクリプトをかんたんに予約実行できます — cron 構文は不要です。
 毎日8時、平日9時、4時間ごとのように、やりたいことをそのまま指定できます。
-必要なら cron expression も直接使え、内部では crontab に安全に登録して管理します。
+必要なら cron expression も直接使えます。macOS は launchd、Linux は cron に登録します。
 
 [English](./README.md) | [한국어](./README.ko.md) | **[日本語](./README.ja.md)** | [中文](./README.zh.md)
 
@@ -61,7 +61,7 @@ cronly list
 
 | 手動 crontab 管理 | Cronly |
 |---|---|
-| 重複登録の可能性あり | 絶対パス基準で自動 dedupe |
+| 重複登録の可能性あり | 同じファイルなら自動 dedupe（シンボリックリンク、大文字小文字の違いを含む） |
 | 他エントリの誤編集リスク | 管理ブロックのみ隔離して修正 |
 | エントリの識別が困難 | メタデータコメントで識別 |
 | 変更時に手動同期が必要 | `add` が upsert として動作 |
@@ -69,9 +69,10 @@ cronly list
 ## 特徴
 
 - 外部 npm dependency ゼロ — Node.js 組み込みモジュールのみ使用
-- DB、サーバー、daemon 不要 — 実際の crontab が source of truth
+- 専用 DB・サーバー・daemon は不要 — LaunchAgent ファイルまたは crontab が管理元です
 - 管理エントリにメタデータコメントを付与し、既存の手動エントリと完全に隔離
 - スペース、シングルクォート、`%` を含むパスを安全にシェルクォート処理
+- ジョブはスクリプトのあるディレクトリで実行され、出力は `~/.cronly/logs/<id>.log` に残ります
 - cron エイリアス対応（`@reboot`、`@daily`、`@weekly` など）
 - ESM ベース（`"type": "module"`）
 - Node.js >= 14.8.0
@@ -92,6 +93,24 @@ npm link
 ```
 
 グローバルインストール後の実行コマンドは `cronly` です。
+
+## macOS と Linux のスケジューラー
+
+macOS はユーザー単位の `launchd` LaunchAgent、Linux は cron を既定で使用します。コマンドとスケジュールフラグは共通です。macOS はジョブごとに `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` を作成し、シェルを介さず引数を渡します。登録に失敗すると以前の設定を復元します。
+
+LaunchAgent は GUI ログインセッションが必要で、そのユーザーのログイン中に動作します。macOS の `--reboot`/`@reboot` は登録・再登録・ログイン時に実行します。cron は起動時実行の意味を維持します。スリープ中のカレンダー予定は復帰時に1回実行される場合があります。保護されたファイルには macOS のアクセス権が適用されます。
+
+リスト・範囲・ステップ・別名をネイティブのカレンダーに変換し、日付と曜日の OR 条件も保持します。`0 0 */2 * 1` のようにステップ付きの日付ワイルドカードと限定曜日を組み合わせる条件や、その逆は正確に表現できないため拒否します。4,096 を超えるカレンダーの組み合わせも拒否します。予定を簡略化するか、`CRONLY_BACKEND=cron` を明示してください。
+
+以前の cron ジョブは自動移行しません。`list`、`print`、`doctor` で案内し、同じファイルの二重登録を防ぎます。移行例：
+
+```bash
+CRONLY_BACKEND=cron cronly list
+CRONLY_BACKEND=cron cronly remove ./job.mjs
+cronly add ./job.mjs --daily 08:00
+```
+
+`CRONLY_BACKEND=cron|launchd` で明示的に選択できます。`CRONLY_HOME` はログの場所を変え、LaunchAgents の既定位置には影響しません。テストでは `CRONLY_LAUNCHD_DIR` で plist を隔離できますが、`~/Library/LaunchAgents` 外のファイルは次のログイン時に自動ロードされません。
 
 ## 使い方
 
@@ -117,6 +136,8 @@ cronly add ./startup.sh --reboot
 cronly add ./custom-binary --daily 08:00 --runtime exec
 ```
 
+`--runtime` には他のインタプリタの名前やパスも指定できます（例: `--runtime python3`）。`add` 時に絶対パスに解決して記録するため、cron からも見つかります。オプションは `--daily 08:00` と `--daily=08:00` のどちらの形でも書けます。
+
 同じファイルを再度 `add` すると、**追加ではなく更新**として動作します：
 
 ```bash
@@ -141,6 +162,8 @@ cronly add ./backup.sh --daily 03:00
 | `--reboot` | `--reboot` | `@reboot` |
 
 曜日トークン: `sun`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat`（大文字小文字不問）
+
+`--every-hours` は 1, 2, 3, 4, 6, 8, 12、`--every-minutes` は 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30 を受け付けます。cron は `*/N` を毎日（時間）または毎時（分）数え直すため、それ以外の値は等間隔に繰り返されません。それでも必要な場合は `--schedule` を使ってください。
 
 ### Cron expression 直接入力（上級者向け）
 
@@ -182,7 +205,7 @@ cronly remove --id a1b2c3d4
 cronly print
 ```
 
-管理中のエントリの実際の crontab ブロックを出力します。
+管理ジョブの LaunchAgent plist または cron ブロックを出力します。
 
 ### 環境チェック
 
@@ -190,23 +213,40 @@ cronly print
 cronly doctor
 ```
 
-Node.js バージョン、`crontab` コマンドの存在、crontab の読み取り可否を点検します。
+Node.js、スクリプトとランタイムの権限、ログの書き込み権限、重複登録を点検します。macOS はログインセッション・LaunchAgent のロード状態・前回の終了状態、cron は crontab へのアクセスを確認します。以前の cron ジョブは移行案内を表示します。問題がある場合は終了コード 1 になります。
+
+### macOS の許可ダイアログ (`CRONLY_BACKEND=cron`)
+
+macOS では、フルディスクアクセスのないアプリが crontab を変更すると許可ダイアログが表示され、`cronly add` と `cronly remove` は応答があるまで待機します。ダイアログは他のウインドウの後ろに隠れることがあるため、数秒以上かかると案内を表示します。ダイアログなしで使うには、Cronly を実行するアプリにフルディスクアクセスを許可してください（システム設定 > プライバシーとセキュリティ > フルディスクアクセス）。
+
+## スケジュールされたジョブの実行方法
+
+cron は最小限の環境でジョブを起動するため、ターミナルでは動くスクリプトが cron では黙って失敗しがちです。Cronly は手動実行に近い形で動くよう、各ジョブを設定します。
+
+- **作業ディレクトリ**: スクリプトのあるディレクトリで実行します。`.env` や `./config.json` のような相対パスがそのまま使えます。
+- **PATH**: `cronly add` を実行した Node.js のディレクトリを先頭に置き、`/usr/bin:/bin` を続けます。シェルスクリプトから `node`、`npm`、`npx` を呼び出せます。それ以外のツールは絶対パスで呼ぶか、スクリプト内で `PATH` を設定してください。
+- **ログ**: stdout と stderr を `~/.cronly/logs/<id>.log` に追記します。`CRONLY_HOME` で基準ディレクトリを変更できます。ログのローテーションはしません。
+- **Node.js バージョン**: ジョブは登録時の Node.js 実行ファイルでそのまま実行されます（例: nvm のバージョン別ディレクトリ）。そのバージョンを削除すると `cronly doctor` が知らせるので、`cronly add` を再実行して現在のバージョンに切り替えてください。
+
+以前のバージョンの Cronly で登録したエントリは、`cronly add` を再実行するまで以前のコマンド形式のままです。
 
 ## 重複登録防止の仕組み
 
 1. スクリプトファイルの**絶対パス**を正規化（`path.resolve`）
 2. 絶対パスの **SHA-256 ハッシュの先頭8文字**を dedupe id として使用
-3. `add` 時に同じ id のブロックが既にあれば**置換**（upsert）
+3. `add` 時に同じ id のブロックと、同じファイルを指すブロック（同じ inode。シンボリックリンクや macOS での大文字小文字の違いなど）を**置換**（upsert）
 4. なければ**追加**
 
-### crontab 内部形式
+cron は `add` に渡したパスをそのまま実行するため、`current -> releases/v2` のようなシンボリックリンクによるデプロイ構成でも、リンクをたどり続けます。`remove <file>` はそのファイルのエントリをすべて削除します。
+
+### crontab 内部形式 (cron)
 
 ```crontab
 # 既存の手動エントリ（変更なし）
 0 * * * * /usr/bin/some-other-job
 
 # [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
-0 2 * * * '/bin/sh' '/home/user/backup.sh'
+0 2 * * * cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
 # [cronly:end] id=a1b2c3d4
 ```
 
@@ -216,6 +256,10 @@ Node.js バージョン、`crontab` コマンドの存在、crontab の読み取
 
 ```bash
 npm test
+# macOS: real launchd daemon, isolated jobs and cleanup
+npm run test:launchd
+# Explicit legacy cron integration test
+npm run test:integration
 ```
 
 ## プロジェクト構造
@@ -223,12 +267,20 @@ npm test
 ```
 ├── bin/cronly.mjs             # CLI エントリポイント
 ├── lib/
-│   ├── cli.mjs                # argv パース、ヘルプ
+│   ├── cli.mjs                # argv パース
 │   ├── commands.mjs           # add/list/remove/print/doctor 実装
+│   ├── backend.mjs            # macOS launchd / Linux cron
+│   ├── launchd.mjs            # LaunchAgent lifecycle
+│   ├── launchd-schedule.mjs   # native calendar conversion
+│   ├── job.mjs                # shared runtime / diagnostics
 │   ├── crontab.mjs            # crontab 読み書き（child_process）
-│   └── entry.mjs              # エントリ生成/パース/dedupe
+│   ├── entry.mjs              # エントリ生成/パース/dedupe
+│   ├── schedule.mjs           # スケジュールフラグ → cron 式の変換
+│   ├── i18n.mjs               # 言語検出、メッセージ取得
+│   └── i18n/                  # メッセージとヘルプ（en, ko, ja, zh）
 ├── test/
 │   ├── test.mjs               # ユニットテスト
+│   ├── launchd-integration.mjs # real launchd daemon test
 │   └── integration.mjs        # 統合テスト（実際の crontab）
 ├── package.json
 └── LICENSE
@@ -238,19 +290,21 @@ npm test
 
 - **dry-run モード**: `--dry-run` フラグで実際の crontab を変更せずにプレビュー
 - **import/export**: 管理エントリを JSON でバックアップ/復元
-- **ログパス自動設定**: `>> /path/to/log 2>&1` の自動付与オプション
-- **環境変数注入**: cron 実行時の PATH 等の環境変数設定
+- **ログオプション**: ログパスの指定、ログローテーション
+- **環境変数注入**: cron 実行時の任意の環境変数設定
 - **MAILTO 設定**: エントリごとのエラー通知メール設定
 - **グループ/タグ**: エントリをグループ化して一括管理
-- **cron 式バリデーション**: schedule 値の事前検証
 - **overlap 防止**: flock ベースの同時実行防止ラッピング
 
 ## 制約事項
 
-- user crontab のみ対応（`crontab -l` / `crontab -`）
+- macOS のユーザー単位 LaunchAgent と Linux の user crontab に対応
+- 同じユーザーの Cronly `add`/`remove` は順番に処理します。`crontab -e` や他のツールによる同時編集は、このロックの対象外です。
 - systemd timer、`/etc/cron.d` 非対応
 - 分散環境非対応（単一マシン前提）
 - overlap execution 防止なし
+- ログはローテーションなしで追記され続けます
+- 999 バイトを超える cron コマンドは拒否します（Vixie 系 cron が切り捨てるため）
 - 改行または carriage return を含むパスは非対応
 
 ## ライセンス
