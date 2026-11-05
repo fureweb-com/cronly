@@ -4,8 +4,9 @@
  *
  * 실행: node test/integration.mjs
  */
-import { execFileSync, spawnSync } from 'child_process'
-import { mkdtempSync, rmSync, writeFileSync, unlinkSync } from 'fs'
+import { spawnSync } from 'child_process'
+import { readCrontabSnapshot, restoreCrontabSnapshot } from './helpers/crontab-backup.mjs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
@@ -24,7 +25,7 @@ const defaultEnv = { ...process.env, CRONLY_LANG: 'en', CRONLY_HOME: cronlyHome 
 const COMMAND_TIMEOUT = 120000
 
 function run(...args) {
-  const result = spawnSync('node', [CLI, ...args], {
+  const result = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
     timeout: COMMAND_TIMEOUT,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -36,7 +37,7 @@ function run(...args) {
 }
 
 function runRaw(...args) {
-  return spawnSync('node', [CLI, ...args], {
+  return spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
     timeout: COMMAND_TIMEOUT,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -45,7 +46,7 @@ function runRaw(...args) {
 }
 
 function runEnv(env, ...args) {
-  const result = spawnSync('node', [CLI, ...args], {
+  const result = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
     timeout: COMMAND_TIMEOUT,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -57,69 +58,70 @@ function runEnv(env, ...args) {
 }
 
 function crontabRaw() {
-  try {
-    return execFileSync('crontab', ['-l'], { encoding: 'utf8' })
-  } catch {
-    return ''
-  }
+  return readCrontabSnapshot().content
 }
 
 // ── 백업 ────────────────────────────────────────────────────────────────────
-// crontab이 아예 없던 경우는 복원할 때 빈 crontab을 설치하지 않고 삭제합니다
-const hadCrontab = spawnSync('crontab', ['-l'], { stdio: 'ignore' }).status === 0
-const backup = crontabRaw()
-
-function restoreCrontab() {
-  if (hadCrontab) {
-    execFileSync('crontab', ['-'], { input: backup, encoding: 'utf8' })
-  } else {
-    spawnSync('crontab', ['-r'], { stdio: 'ignore' })
-  }
-}
-
-// Ctrl+C로 중단해도 finally가 실행되지 않으므로 여기서 복원합니다
-process.once('SIGINT', () => {
-  restoreCrontab()
-  console.log('\n중단됨: crontab 복원 완료.')
-  process.exit(130)
-})
-
-// ── 쓰기 권한 확인 ──────────────────────────────────────────────────────────
-// macOS는 crontab을 바꿀 때 권한 확인 창을 띄우고, 응답할 때까지 crontab 명령이 멈춥니다.
-// 같은 내용을 먼저 한 번 써서 테스트 시작 전에 권한 창을 처리합니다.
-console.log('crontab 쓰기 권한 확인 중 (macOS 권한 창이 뜨면 허용해 주세요)...')
-const preflight = spawnSync('crontab', ['-'], { input: backup, encoding: 'utf8', timeout: 10 * 60 * 1000 })
-if (preflight.status !== 0) {
-  const reason = (preflight.stderr || '').trim() || (preflight.error && preflight.error.message) || `exit ${preflight.status}`
-  console.error(`crontab에 쓸 수 없어 통합 테스트를 중단합니다: ${reason}`)
+// 조회 오류에서는 쓰기를 시작하지 않습니다. 미등록과 빈 crontab도 구분합니다.
+let snapshot
+try {
+  snapshot = readCrontabSnapshot()
+} catch (err) {
+  console.error(`crontab 백업 실패: ${err.message}`)
   rmSync(cronlyHome, { recursive: true, force: true })
   process.exit(1)
 }
+const hadCrontab = snapshot.exists
+const backup = snapshot.content
+const restoreCrontab = () => restoreCrontabSnapshot(snapshot)
 
-// 임시 스크립트 파일 생성
-const tmpScript1 = join(tmpdir(), 'cronly-test-1.sh')
-const tmpScript2 = join(tmpdir(), 'cronly-test-2.mjs')
-writeFileSync(tmpScript1, '#!/bin/sh\necho test1\n', { mode: 0o755 })
-writeFileSync(tmpScript2, 'console.log("test2")\n')
+// Ctrl+C로 중단해도 finally가 실행되지 않으므로 여기서 복원합니다
+process.once('SIGINT', () => {
+  try {
+    restoreCrontab()
+    console.log('\n중단됨: crontab 복원 완료.')
+  } catch (err) {
+    console.error(`\ncrontab 복원 실패: ${err.message}`)
+  } finally {
+    rmSync(cronlyHome, { recursive: true, force: true })
+  }
+  process.exit(130)
+})
 
 let passed = 0
 let failed = 0
 
-async function test(name, fn) {
-  try {
-    await fn()
-    passed++
-    console.log(`  ✓ ${name}`)
-  } catch (err) {
-    failed++
-    console.log(`  ✗ ${name}`)
-    console.log(`    ${err.message}`)
-  }
-}
-
-console.log('통합 테스트 (실제 crontab 사용)\n')
-
 try {
+  // ── 쓰기 권한 확인 ──────────────────────────────────────────────────────────
+  // macOS는 crontab을 바꿀 때 권한 확인 창을 띄우고, 응답할 때까지 crontab 명령이 멈춥니다.
+  // 같은 내용을 먼저 한 번 써서 테스트 시작 전에 권한 창을 처리합니다.
+  console.log('crontab 쓰기 권한 확인 중 (macOS 권한 창이 뜨면 허용해 주세요)...')
+  const preflight = spawnSync('crontab', ['-'], { input: backup, encoding: 'utf8', timeout: 10 * 60 * 1000 })
+  if (preflight.status !== 0) {
+    const reason = (preflight.stderr || '').trim() || (preflight.error && preflight.error.message) || `exit ${preflight.status}`
+    throw new Error(`crontab에 쓸 수 없어 통합 테스트를 중단합니다: ${reason}`)
+  }
+
+  // 임시 스크립트 파일 생성
+  const tmpScript1 = join(cronlyHome, 'cronly-test-1.sh')
+  const tmpScript2 = join(cronlyHome, 'cronly-test-2.mjs')
+  writeFileSync(tmpScript1, '#!/bin/sh\necho test1\n', { mode: 0o755 })
+  writeFileSync(tmpScript2, 'console.log("test2")\n')
+
+  async function test(name, fn) {
+    try {
+      await fn()
+      passed++
+      console.log(`  ✓ ${name}`)
+    } catch (err) {
+      failed++
+      console.log(`  ✗ ${name}`)
+      console.log(`    ${err.message}`)
+    }
+  }
+
+  console.log('통합 테스트 (실제 crontab 사용)\n')
+
   // ── 기본 명령어 ──────────────────────────────────────────────────────────
 
   await test('doctor 실행', () => {
@@ -338,18 +340,20 @@ try {
     const out = run('list')
     assert.ok(!out.includes(tmpScript2))
   })
+} catch (err) {
+  failed++
+  console.error(err.message)
 } finally {
   // ── 복원 ──────────────────────────────────────────────────────────────────
   try {
     restoreCrontab()
     console.log(hadCrontab ? '\ncrontab 복원 완료.' : '\ncrontab 삭제 완료 (원래 없었음).')
-  } catch {
-    console.log('\ncrontab 복원 실패. crontab -l로 확인해 주세요.')
+  } catch (err) {
+    failed++
+    console.error(`\ncrontab 복원 실패: ${err.message}`)
   }
 
   // 임시 파일 정리
-  try { unlinkSync(tmpScript1) } catch {}
-  try { unlinkSync(tmpScript2) } catch {}
   rmSync(cronlyHome, { recursive: true, force: true })
 }
 

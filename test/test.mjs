@@ -1,4 +1,5 @@
 import assert from 'assert/strict'
+import { runSandboxedIntegration } from './helpers/integration-sandbox.mjs'
 import { decodeCronCommand } from './helpers/cron-command.mjs'
 import { spawnSync } from 'child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
@@ -2454,6 +2455,32 @@ await testAsync('doctor: 로그 디렉터리와 파일의 쓰기 권한·파일 
     writeFileSync(logDir, '')
     assert.deepEqual(findEntryIssues(block).map((i) => i.code), ['log_unwritable'])
   })
+})
+
+test('통합 테스트 안전성: 최초 조회 실패 시 기존 crontab을 보존하고 쓰기 전에 중단', () => {
+  const original = '# original\n0 0 * * * /bin/true\n'
+  const result = runSandboxedIntegration({ original, readFail: true })
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stderr, /crontab 백업 실패: crontab: temporary read failure/)
+  assert.equal(result.state, original)
+  assert.equal(result.mutations, '')
+})
+
+test('통합 테스트 안전성: 기존 crontab·빈 crontab·미등록 상태를 각각 정확히 복원', () => {
+  for (const original of ['# original\n0 0 * * * /bin/true\n', '', null]) {
+    const result = runSandboxedIntegration({ original })
+    assert.equal(result.status, 0, result.stderr + result.stdout)
+    assert.match(result.stdout, /33개 통과, 0개 실패/)
+    assert.equal(result.state, original)
+    assert.equal(result.mutations.includes('remove'), original === null)
+  }
+})
+
+test('통합 테스트 안전성: 복원 실패를 성공으로 종료하지 않음', () => {
+  const result = runSandboxedIntegration({ restoreFail: true })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /crontab 복원 실패: restore denied/)
+  assert.match(result.stdout, /33개 통과, 1개 실패/)
 })
 
 // ── 결과 ────────────────────────────────────────────────────────────────────
