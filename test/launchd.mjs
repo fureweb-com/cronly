@@ -312,6 +312,16 @@ export async function runLaunchdTests({ test, testAsync, captureLogs, withPatche
       assert.deepEqual(ctx.state(),{})
     })
   })
+  await testAsync('launchd: 자식 추적에 실패해도 이미 실행한 launchctl 명령의 결과를 그대로 보고',async()=>{
+    await withLaunchdSandbox(async ctx=>{
+      const file=ctx.script();await captureLogs(()=>add(file,{schedule:'@daily'}));const job=readLaunchdJobs()[0]
+      const failing=()=>{throw Object.assign(new Error('no space left on device'),{code:'ENOSPC'})}
+      // bootout은 실제로 실행된다. 실패로 보이면 복원 단계가 이 작업을 다시 올리지 않는다
+      const result=await runLaunchctl(['bootout',`${getLaunchdDomain()}/${job.label}`],failing)
+      assert.equal(result.ok,true);assert.deepEqual(ctx.state(),{})
+      assert.equal((await runLaunchctl(['print',`${getLaunchdDomain()}/${job.label}`],failing)).ok,false)
+    })
+  })
   await testAsync('launchd 명령 누락: 자식 프로세스 생성 오류를 정상 실패로 반환',async()=>{
     await withLaunchdSandbox(async()=>{
       const path=process.env.PATH;process.env.PATH='/no-launchctl'
