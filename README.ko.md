@@ -227,7 +227,7 @@ cron은 최소한의 환경으로 작업을 실행해서, 터미널에서는 잘
 
 - **작업 디렉터리**: 스크립트가 있는 디렉터리에서 실행해요. 그래서 `.env`나 `./config.json` 같은 상대 경로가 그대로 동작해요.
 - **PATH**: `cronly add`를 실행한 Node.js의 디렉터리를 맨 앞에 두고 `/usr/bin:/bin`을 붙여요. 셸 스크립트 안에서 `node`, `npm`, `npx`를 부를 수 있어요. 다른 도구는 절대 경로로 부르거나 스크립트에서 `PATH`를 지정해 주세요.
-- **로그**: stdout과 stderr를 `~/.cronly/logs/<id>.log`에 이어서 기록해요. `CRONLY_HOME`으로 기준 디렉터리를 바꿀 수 있어요. 로그 로테이션은 하지 않아요.
+- **로그**: stdout과 stderr를 `~/.cronly/logs/<id>.log`에 이어서 기록해요. `CRONLY_HOME`으로 기준 디렉터리를 바꿀 수 있어요. 로그 로테이션은 하지 않아요. cron에서는 스크립트 디렉터리로 들어가지 못한 오류도 여기에 남아요.
 - **Node.js 버전**: 작업은 등록할 때 쓴 Node.js 실행 파일 그대로 실행돼요 (예: nvm의 버전별 디렉터리). 그 버전을 지우면 `cronly doctor`가 알려 주니, `cronly add`를 다시 실행해서 현재 버전으로 바꿔 주세요.
 
 예전 버전의 Cronly로 등록한 엔트리는 `cronly add`를 다시 실행하기 전까지 이전 명령 형태를 유지해요. 특히 1.0.1 이하에서 등록한 `.sh` 엔트리는 계속 `/bin/sh`로 실행돼요. 스크립트가 다른 인터프리터를 가리키는 엔트리는 `cronly doctor`가 알려 줘요.
@@ -248,7 +248,7 @@ cron은 `add`에 넘긴 경로를 그대로 실행해서, `current -> releases/v
 0 * * * * /usr/bin/some-other-job
 
 # [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
-0 2 * * * cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
+0 2 * * * { cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' ; } >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
 # [cronly:end] id=a1b2c3d4
 ```
 

@@ -227,7 +227,7 @@ cron 以最精简的环境启动任务，因此在终端中正常运行的脚本
 
 - **工作目录**：在脚本所在目录中运行，`.env`、`./config.json` 等相对路径可以正常解析。
 - **PATH**：把执行 `cronly add` 的 Node.js 所在目录放在最前面，后接 `/usr/bin:/bin`，因此 shell 脚本中可以调用 `node`、`npm`、`npx`。其他工具请使用绝对路径，或在脚本中设置 `PATH`。
-- **日志**：stdout 和 stderr 会追加到 `~/.cronly/logs/<id>.log`。可通过 `CRONLY_HOME` 更改基础目录。日志不会轮转。
+- **日志**：stdout 和 stderr 会追加到 `~/.cronly/logs/<id>.log`。可通过 `CRONLY_HOME` 更改基础目录。日志不会轮转。使用 cron 时，无法进入脚本目录的错误也会记录在这里。
 - **Node.js 版本**：任务使用注册时的 Node.js 可执行文件运行（例如 nvm 的版本目录）。删除该版本后，`cronly doctor` 会报告问题；请重新执行 `cronly add` 切换到当前版本。
 
 由旧版 Cronly 注册的条目，在重新执行 `cronly add` 之前会保留旧的命令格式。尤其是 1.0.1 及更早版本注册的 `.sh` 条目仍以 `/bin/sh` 运行；脚本指定了其他解释器的条目，`cronly doctor` 会给出提示。
@@ -248,7 +248,7 @@ cron 会按 `add` 时传入的路径运行，因此在 `current -> releases/v2` 
 0 * * * * /usr/bin/some-other-job
 
 # [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
-0 2 * * * cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
+0 2 * * * { cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' ; } >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
 # [cronly:end] id=a1b2c3d4
 ```
 

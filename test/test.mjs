@@ -485,7 +485,7 @@ test('buildBlock: runtimePath, PATH, 로그 경로를 모두 반영', () => {
   })
   assert.equal(
     block.split('\n')[1],
-    "0 8 * * * cd '/home/user' && PATH='/opt/node/bin:/usr/bin:/bin' '/opt/node/bin/node' '/home/user/job.mjs'" +
+    "0 8 * * * { cd '/home/user' && PATH='/opt/node/bin:/usr/bin:/bin' '/opt/node/bin/node' '/home/user/job.mjs' ; }" +
       " >> '/home/user/.cronly/logs/abcd1234.log' 2>&1"
   )
 })
@@ -807,7 +807,7 @@ test('라운드트립: 로그와 PATH가 붙은 @reboot 블록도 alias로 파�
 
   assert.equal(blocks.length, 1)
   assert.equal(blocks[0].schedule, '@reboot')
-  assert.ok(blocks[0].command.startsWith("cd '/home/user' && "))
+  assert.ok(blocks[0].command.startsWith("{ cd '/home/user' && "))
 })
 
 test('중복 방지: 같은 path로 buildBlock 두 번 -> parseBlocks에서 같은 id', () => {
@@ -893,12 +893,15 @@ test("splitCommandWords: 따옴표, '\\'' 이스케이프, \\% 복원", () => {
   })
   const command = parseBlocks(block)[0].command
   assert.deepEqual(splitCommandWords(command), [
+    '{',
     'cd',
     '/a b',
     '&&',
     'PATH=/x:/y',
     '/bin/sh',
     "/a b/it's 100%.sh",
+    ';',
+    '}',
     '>>',
     '/l/1.log',
     '2>&1',
@@ -935,6 +938,13 @@ test('inspectCommand: 예전 형식(cd/로그 없음)도 런타임을 찾음', (
     runtimeBin: '/usr/bin/node',
     logPath: null,
   })
+})
+
+test('inspectCommand: 1.0.1 형식({ } 묶음 없음)과 exec 묶음에서도 런타임과 로그 경로를 찾음', () => {
+  const legacy = "cd '/x' && PATH='/opt/node/bin:/usr/bin:/bin' '/opt/node/bin/node' '/x/job.mjs' >> '/l/1.log' 2>&1"
+  assert.deepEqual(inspectCommand(legacy, '/x/job.mjs'), { runtimeBin: '/opt/node/bin/node', logPath: '/l/1.log' })
+  assert.deepEqual(inspectCommand("{ cd '/x' && PATH='/p' '/x/tool' ; } >> '/l/2.log' 2>&1", '/x/tool'), { runtimeBin: null, logPath: '/l/2.log' })
+  assert.deepEqual(inspectCommand("{ cd '/x' && '/x/tool' ; } >> '/l/2.log' 2>&1", '/x/tool'), { runtimeBin: null, logPath: '/l/2.log' })
 })
 
 test('inspectCommand: exec 런타임이나 스크립트를 못 찾으면 runtimeBin은 null', () => {
@@ -1927,7 +1937,7 @@ await testAsync('add: 스크립트 디렉터리로 cd 하고 로그 파일에 �
     const [block] = parseBlocks(ctx.readState())
     assert.equal(
       block.command,
-      `cd '${ctx.dir}' && PATH='${getCronPath()}' '${process.execPath}' '${file}' >> '${logPath}' 2>&1`
+      `{ cd '${ctx.dir}' && PATH='${getCronPath()}' '${process.execPath}' '${file}' ; } >> '${logPath}' 2>&1`
     )
     assert.ok(existsSync(ctx.logDir), 'log directory should be created')
     assert.deepEqual(logs, [`Registered: ${file} (id=${makeId(file)})`, `  Log: ${logPath}`])
@@ -2113,7 +2123,7 @@ await testAsync('add: 같은 파일을 다른 경로로 다시 등록하면 기�
     assert.equal(blocks[0].path, viaLink)
     assert.equal(blocks[0].schedule, '0 9 * * *')
     // cron은 링크를 거친 경로로 실행해서, current가 바뀌면 새 릴리스를 실행
-    assert.ok(blocks[0].command.startsWith(`cd '${join(ctx.dir, 'current')}' && `))
+    assert.ok(blocks[0].command.startsWith(`{ cd '${join(ctx.dir, 'current')}' && `))
     assert.deepEqual(logs.slice(0, 2), [
       `Updated: ${viaLink} (id=${makeId(viaLink)})`,
       `  Replaced the entry for the same file: ${file} (id=${makeId(file)})`,
@@ -2787,6 +2797,28 @@ await testAsync('cron 실행: 백슬래시·%·작은따옴표가 섞인 스크�
       }
       assert.equal(readFileSync(logPath, 'utf8'), 'stdout-ok\nstderr-ok\nstdout-ok\nstderr-ok\n')
     }
+  })
+})
+
+await testAsync('cron 실행: 스크립트 디렉터리로 들어가지 못한 오류도 작업 로그에 남김', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    mkdirSync(join(ctx.dir, 'app'))
+    mkdirSync(join(ctx.dir, 'logs'))
+    const file = ctx.createScript('app/job.sh', 'echo ran\n')
+    const logPath = join(ctx.dir, 'logs', 'job.log')
+    const [block] = parseBlocks(buildBlock({ schedule: '@reboot', absolutePath: file, runtime: 'sh', logPath }))
+    const run = () => spawnSync('/bin/sh', ['-c', decodeCronCommand(block.command)], { cwd: homedir(), encoding: 'utf8' })
+
+    assert.equal(run().status, 0)
+    assert.equal(readFileSync(logPath, 'utf8'), 'ran\n')
+
+    // 배포 도중 디렉터리가 사라진 경우. 예전에는 오류가 cron 메일로만 가고 로그는 비어 있었다
+    rmSync(join(ctx.dir, 'app'), { recursive: true })
+    const failed = run()
+    assert.notEqual(failed.status, 0)
+    assert.equal(failed.stderr, '')
+    const log = readFileSync(logPath, 'utf8')
+    assert.ok(log.startsWith('ran\n') && log.slice(4).includes('cd'), log)
   })
 })
 

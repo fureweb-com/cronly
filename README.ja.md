@@ -227,7 +227,7 @@ cron は最小限の環境でジョブを起動するため、ターミナルで
 
 - **作業ディレクトリ**: スクリプトのあるディレクトリで実行します。`.env` や `./config.json` のような相対パスがそのまま使えます。
 - **PATH**: `cronly add` を実行した Node.js のディレクトリを先頭に置き、`/usr/bin:/bin` を続けます。シェルスクリプトから `node`、`npm`、`npx` を呼び出せます。それ以外のツールは絶対パスで呼ぶか、スクリプト内で `PATH` を設定してください。
-- **ログ**: stdout と stderr を `~/.cronly/logs/<id>.log` に追記します。`CRONLY_HOME` で基準ディレクトリを変更できます。ログのローテーションはしません。
+- **ログ**: stdout と stderr を `~/.cronly/logs/<id>.log` に追記します。`CRONLY_HOME` で基準ディレクトリを変更できます。ログのローテーションはしません。cron では、スクリプトのディレクトリに移動できなかったエラーもここに記録されます。
 - **Node.js バージョン**: ジョブは登録時の Node.js 実行ファイルでそのまま実行されます（例: nvm のバージョン別ディレクトリ）。そのバージョンを削除すると `cronly doctor` が知らせるので、`cronly add` を再実行して現在のバージョンに切り替えてください。
 
 以前のバージョンの Cronly で登録したエントリは、`cronly add` を再実行するまで以前のコマンド形式のままです。特に、1.0.1 以前に登録した `.sh` エントリは引き続き `/bin/sh` で実行されます。スクリプトが別のインタプリタを指定しているものは `cronly doctor` が知らせます。
@@ -248,7 +248,7 @@ cron は `add` に渡したパスをそのまま実行するため、`current ->
 0 * * * * /usr/bin/some-other-job
 
 # [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
-0 2 * * * cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
+0 2 * * * { cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' ; } >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
 # [cronly:end] id=a1b2c3d4
 ```
 

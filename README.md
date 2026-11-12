@@ -227,7 +227,7 @@ cron starts jobs with a minimal environment, so a script that works in your term
 
 - **Working directory**: the job runs from the script's directory, so relative paths such as `.env` or `./config.json` resolve.
 - **PATH**: the directory of the Node.js that ran `cronly add` comes first, followed by `/usr/bin:/bin`, so shell scripts can call `node`, `npm`, and `npx`. Call other tools by absolute path, or set `PATH` in your script.
-- **Logs**: stdout and stderr are appended to `~/.cronly/logs/<id>.log`. Set `CRONLY_HOME` to use a different base directory. Logs are not rotated.
+- **Logs**: stdout and stderr are appended to `~/.cronly/logs/<id>.log`. Set `CRONLY_HOME` to use a different base directory. Logs are not rotated. With cron, a job that cannot enter its script's directory is recorded there as well.
 - **Node.js version**: jobs run with the exact Node.js binary that registered them (for example an nvm version directory). If you remove that version, `cronly doctor` reports it; run `cronly add` again to switch to the current one.
 
 Entries registered by an older version of Cronly keep their old command line until you run `cronly add` for them again. In particular, a `.sh` entry from 1.0.1 or earlier still runs with `/bin/sh`; `cronly doctor` points out the ones whose script names another interpreter.
@@ -248,7 +248,7 @@ cron runs the path you passed to `add`, so a symlinked deploy such as `current -
 0 * * * * /usr/bin/some-other-job
 
 # [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
-0 2 * * * cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
+0 2 * * * { cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' ; } >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
 # [cronly:end] id=a1b2c3d4
 ```
 
