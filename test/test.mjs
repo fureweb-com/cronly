@@ -1601,6 +1601,30 @@ await testAsync('readCrontab: no crontab은 빈 문자열', async () => {
   })
 })
 
+await testAsync('readCrontab: BusyBox(Alpine)의 crontab 없음 메시지도 빈 문자열', async () => {
+  await withMockCrontabEnv({ readFail: "crontab: can't open 'deploy': No such file or directory" }, async (ctx) => {
+    assert.equal(await readCrontab(), '')
+    // crontab이 없는 사용자의 첫 등록이 실패하지 않는다
+    const file = ctx.createScript('job.mjs', '')
+    await captureLogs(() => add(file, { schedule: '0 8 * * *' }))
+    assert.deepEqual(parseBlocks(ctx.readState()).map((b) => b.path), [file])
+  })
+})
+
+await testAsync('readCrontab: 읽지 못한 crontab을 빈 것으로 취급하지 않음', async () => {
+  for (const message of [
+    "crontab: can't open 'deploy': Permission denied",
+    "crontab: can't change directory to '/var/spool/cron/crontabs': No such file or directory",
+  ]) {
+    await withMockCrontabEnv({ initialContent: '0 * * * * /job\n', readFail: message }, async (ctx) => {
+      await assert.rejects(() => readCrontab(), { message: `crontab -l failed: ${message}` })
+      const file = ctx.createScript('job.mjs', '')
+      await assert.rejects(() => add(file, { schedule: '0 8 * * *' }), /crontab -l failed/)
+      assert.equal(ctx.readState(), '0 * * * * /job\n')
+    })
+  }
+})
+
 await testAsync('readCrontab: 일반 실패는 reject', async () => {
   await withMockCrontabEnv({ readFail: 'mock read denied' }, async () => {
     await assert.rejects(() => readCrontab(), { message: 'crontab -l failed: mock read denied' })
