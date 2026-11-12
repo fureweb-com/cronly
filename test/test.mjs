@@ -870,7 +870,9 @@ test('removeBlockFromCrontab: add가 넣은 구분 빈 줄까지 지워 add를 �
   const cases = [
     [`${x}\n`, ''],
     [`A\n\n${x}\n`, 'A\n'],
-    [`A\n\n${x}`, 'A'],
+    // 마지막 줄에 개행이 없으면 crontab이 설치를 거부하므로 항상 개행으로 끝낸다
+    [`A\n\n${x}`, 'A\n'],
+    [`A\n\n${x}\nB`, 'A\nB\n'],
     [`A\n${x}\n`, 'A\n'],
     [`A\n\n${x}\n\n${y}\n`, `A\n\n${y}\n`],
     [`${x}\n\n${y}\n`, `${y}\n`],
@@ -1957,6 +1959,19 @@ await testAsync('add: 스크립트 디렉터리로 cd 하고 로그 파일에 �
     )
     assert.ok(existsSync(ctx.logDir), 'log directory should be created')
     assert.deepEqual(logs, [`Registered: ${file} (id=${makeId(file)})`, `  Log: ${logPath}`])
+  })
+})
+
+await testAsync('add/remove: 마지막 줄에 개행이 없던 crontab도 개행으로 끝나도록 씀', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const file = ctx.createScript('job.mjs', '')
+    const block = buildBlock({ schedule: '0 8 * * *', absolutePath: file, runtime: 'node' })
+    ctx.setState(`# manual\n\n${block}`)
+    await captureLogs(() => add(file, { schedule: '0 9 * * *' }))
+    assert.ok(ctx.readState().endsWith('# [cronly:end] id=' + makeId(file) + '\n'))
+    ctx.setState(`# manual\n\n${parseBlocks(ctx.readState())[0].raw}`)
+    await captureLogs(() => remove(file, {}))
+    assert.equal(ctx.readState(), '# manual\n')
   })
 })
 
