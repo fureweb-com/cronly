@@ -126,7 +126,9 @@ export async function runLaunchdTests({ test, testAsync, captureLogs, withPatche
       assert.equal(skipped(withMetadata({...job,path:'relative.mjs'})).path,'relative.mjs')
       assert.equal(skipped(withMetadata({...job,path:7})).path,undefined)
       // 이 버전이 모르는 형식 번호가 있으면 더 새로운 Cronly가 쓴 파일로 구분한다
-      assert.equal(skipped(withMetadata({backend:job.backend,id:job.id,path:job.path,runtime:job.runtime,runtimePath:job.runtimePath,schedule:job.schedule,pathEnv:job.pathEnv,logPath:job.logPath,format:2})).newer,true)
+      const fields={backend:job.backend,id:job.id,path:job.path,runtime:job.runtime,runtimePath:job.runtimePath,schedule:job.schedule,pathEnv:job.pathEnv,logPath:job.logPath}
+      assert.equal(skipped(withMetadata({...fields,format:2})).newer,true)
+      assert.equal(skipped(withMetadata({...fields,format:'2'})).newer,false)
       writeFileSync(job.plistPath,job.raw);writeFileSync(join(ctx.agents,`${LABEL_PREFIX}wrong.plist`),job.raw)
       assert.deepEqual(readLaunchdEntries().map(e=>[e.id,!!e.invalid]).sort(),[[job.id,false],['wrong',true]].sort())
       rmSync(join(ctx.agents,`${LABEL_PREFIX}wrong.plist`))
@@ -211,10 +213,23 @@ export async function runLaunchdTests({ test, testAsync, captureLogs, withPatche
       assert.ok(report.logs.includes(`  ⚠ ${job.id}: this LaunchAgent was written by a newer version of Cronly, so it is skipped: ${job.plistPath}. Upgrade Cronly to manage it.`))
       assert.ok(report.logs.some(l=>l.includes('No managed launchd')))
 
+      // Finder 복제본처럼 이름이 다른 파일: id에 공백이 있어 "remove --id"를 안내하면 셸이 인자를 나눈다
+      writeFileSync(job.plistPath,current.raw)
+      const copy=join(ctx.agents,`${job.label} copy.plist`);writeFileSync(copy,current.raw)
+      report=await captureLogs(()=>list())
+      assert.ok(report.logs.includes(`  ⚠ This file is not named like a Cronly LaunchAgent, so it is skipped: ${copy}. Delete it if it is a leftover copy.`))
+      assert.ok(!report.logs.some(l=>l.includes('--id')))
+      const pasted=ctx.cli(['remove','--id',job.id,'copy'])
+      assert.equal(pasted.status,1);assert.match(pasted.stderr,/either a file path or --id, not both/)
+      assert.equal(readLaunchdJobs().length,1);assert.ok(ctx.state()[job.label],'the valid job is kept')
+      rmSync(copy)
+
       // 읽을 수조차 없는 파일은 되돌릴 수 없으므로 교체·삭제하지 않는다
-      writeFileSync(job.plistPath,current.raw);chmodSync(job.plistPath,0o000)
+      chmodSync(job.plistPath,0o000)
       try{
         assert.equal(readLaunchdEntries()[0].raw,undefined)
+        report=await captureLogs(()=>list())
+        assert.ok(report.logs.includes(`  ⚠ This LaunchAgent cannot be read, so it is skipped: ${job.plistPath}. Check its permissions, or delete the file.`))
         await assert.rejects(()=>add(file,{schedule:'@daily'}),/Invalid Cronly LaunchAgent/)
         await assert.rejects(()=>remove(undefined,{id:job.id}),/Invalid Cronly LaunchAgent/)
         assert.equal((await captureLogs(()=>doctor())).result,false)

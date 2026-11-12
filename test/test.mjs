@@ -2299,6 +2299,21 @@ await testAsync('remove: 인자 없이 호출하면 거부', async () => {
   await assert.rejects(() => remove(undefined, {}), /file path or --id/)
 })
 
+await testAsync('remove: 파일과 --id를 함께 주면 어느 쪽도 지우지 않고 거부', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const a = ctx.createScript('a.sh', 'echo a\n')
+    const b = ctx.createScript('b.sh', 'echo b\n')
+    await captureLogs(async () => { await add(a, { schedule: '0 1 * * *' }); await add(b, { schedule: '0 2 * * *' }) })
+    const before = ctx.readState()
+    // 예전에는 --id가 조용히 이겨서, 붙여 넣은 인자가 나뉘면 의도하지 않은 작업이 지워졌다
+    await assert.rejects(() => remove(b, { id: makeId(a) }), /either a file path or --id, not both/)
+    const result = ctx.cli(['remove', '--id', makeId(a), 'copy'])
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /either a file path or --id, not both/)
+    assert.equal(ctx.readState(), before)
+  })
+})
+
 await testAsync('remove: id로 삭제', async () => {
   await withMockCrontabEnv({}, async (ctx) => {
     const file = ctx.createScript('job.sh', '#!/bin/sh\necho one\n')
