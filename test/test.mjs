@@ -131,7 +131,7 @@ async function withPatchedVersion(version, fn) {
 }
 
 async function withMockCrontabEnv(
-  { initialContent = '', noCrontab = false, readFail = '', writeFail = '', writeDelay = '', whichFail = false } = {},
+  { initialContent = '', noCrontab = false, readFail = '', writeFail = '', writeRefuse = '', writeDelay = '', whichFail = false } = {},
   fn
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'cronly-unit-'))
@@ -164,6 +164,11 @@ if [ "$1" = "-l" ]; then
 fi
 if [ "$1" = "-" ]; then
   if [ -n "$MOCK_WRITE_STARTED" ]; then touch "$MOCK_WRITE_STARTED"; fi
+  if [ -n "$MOCK_WRITE_REFUSE" ]; then
+    # Refuse without reading the input, like crontab for a user in cron.deny.
+    echo "$MOCK_WRITE_REFUSE" >&2
+    exit 1
+  fi
   if [ -n "$MOCK_WRITE_DELAY" ]; then
     sleep "$MOCK_WRITE_DELAY"
   fi
@@ -207,6 +212,7 @@ exit 1
     'MOCK_NO_CRONTAB',
     'MOCK_READ_FAIL',
     'MOCK_WRITE_FAIL',
+    'MOCK_WRITE_REFUSE',
     'MOCK_WRITE_DELAY',
     'MOCK_WRITE_STARTED',
     'MOCK_WHICH_FAIL',
@@ -230,6 +236,8 @@ exit 1
   else delete process.env.MOCK_READ_FAIL
   if (writeFail) process.env.MOCK_WRITE_FAIL = writeFail
   else delete process.env.MOCK_WRITE_FAIL
+  if (writeRefuse) process.env.MOCK_WRITE_REFUSE = writeRefuse
+  else delete process.env.MOCK_WRITE_REFUSE
   if (writeDelay) process.env.MOCK_WRITE_DELAY = writeDelay
   else delete process.env.MOCK_WRITE_DELAY
   if (whichFail) process.env.MOCK_WHICH_FAIL = '1'
@@ -1716,6 +1724,17 @@ await testAsync('writeCrontab: macOS가 막으면(Operation not permitted) 해�
     await assert.rejects(() => writeCrontab('0 * * * * /job\n', { platform: 'linux' }), {
       message: 'crontab - failed: crontab: tmp/tmp.123: Operation not permitted',
     })
+  })
+})
+
+await testAsync('writeCrontab: crontab이 입력을 읽지 않고 거부해도 EPIPE로 죽지 않고 거부 사유를 보고', async () => {
+  const refusal = 'You (deploy) are not allowed to use this program (crontab)'
+  await withMockCrontabEnv({ initialContent: '0 * * * * /job\n', writeRefuse: refusal }, async (ctx) => {
+    // 파이프 버퍼보다 큰 crontab: 자식이 먼저 끝나면 남은 쓰기가 EPIPE로 실패한다
+    const large = `${'# filler line\n'.repeat(600000)}0 * * * * /job\n`
+    await assert.rejects(() => writeCrontab(large), { message: `crontab - failed: ${refusal}` })
+    await assert.rejects(() => writeCrontab('0 * * * * /other\n'), { message: `crontab - failed: ${refusal}` })
+    assert.equal(ctx.readState(), '0 * * * * /job\n')
   })
 })
 
