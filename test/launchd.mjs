@@ -312,6 +312,19 @@ export async function runLaunchdTests({ test, testAsync, captureLogs, withPatche
       assert.deepEqual(ctx.state(),{})
     })
   })
+  await testAsync('launchd: 교체에 실패하면 UTF-8이 아닌 기존 파일도 바이트 그대로 되돌림',async()=>{
+    await withLaunchdSandbox(async ctx=>{
+      const file=ctx.script();mkdirSync(ctx.agents)
+      // plutil -convert binary1로 바꾼 plist처럼, 문자열로 읽었다가 쓰면 깨지는 내용
+      const binary=Buffer.from([0x62,0x70,0x6c,0x69,0x73,0x74,0x30,0x30,0xd1,0x01,0x02,0xff,0xfe,0x00,0x80])
+      const plistPath=join(ctx.agents,`${LABEL_PREFIX}${makeId(file)}.plist`);writeFileSync(plistPath,binary)
+      process.env.LAUNCHD_TEST_FAIL='bootstrap'
+      await assert.rejects(()=>add(file,{schedule:'@daily'}),/operation denied/)
+      assert.ok(readFileSync(plistPath).equals(binary),'the previous file is restored byte for byte')
+      process.env.LAUNCHD_TEST_FAIL=''
+      await captureLogs(()=>add(file,{schedule:'@daily'}));assert.equal(readLaunchdJobs().length,1)
+    })
+  })
   await testAsync('launchd: 자식 추적에 실패해도 이미 실행한 launchctl 명령의 결과를 그대로 보고',async()=>{
     await withLaunchdSandbox(async ctx=>{
       const file=ctx.script();await captureLogs(()=>add(file,{schedule:'@daily'}));const job=readLaunchdJobs()[0]
