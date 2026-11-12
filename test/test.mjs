@@ -2476,6 +2476,8 @@ await testAsync('isCronDaemonRunning: 프로세스 목록에서 cron 데몬을 �
   await withMockCrontabEnv({}, async (ctx) => {
     assert.equal(getProcDir({}), '/proc')
     assert.equal(getProcDir({ CRONLY_PROC_DIR: '/custom/proc' }), '/custom/proc')
+    // 실제 /proc: 값은 실행 환경마다 다르다 (macOS는 null). 다른 목록을 주면 이 머신의 systemd-cron은 보지 않는다
+    assert.ok([true, false, null].includes(isCronDaemonRunning('/proc')))
     let n = 0
     const list = (commands) => writeProcessList(join(ctx.dir, `proc-${n++}`), commands)
     const none = []
@@ -2502,6 +2504,7 @@ await testAsync('isCronDaemonRunning: 프로세스 목록에서 cron 데몬을 �
     // systemd-cron은 데몬 없이 타이머로 crontab을 실행한다
     const generator = ctx.createScript('systemd-crontab-generator', '')
     assert.equal(isCronDaemonRunning(list([['/sbin/init']]), [join(ctx.dir, 'absent'), generator]), true)
+    assert.equal(isCronDaemonRunning(list([['/sbin/init']])), false)
   })
 })
 

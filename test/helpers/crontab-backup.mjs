@@ -9,7 +9,8 @@ function failure(result) {
 export function readCrontabSnapshot() {
   const result = spawnSync('crontab', ['-l'])
   if (result.status === 0) return { exists: true, content: result.stdout.toString('utf8'), bytes: result.stdout }
-  if (result.status === 1 && /^(?:crontab:\s*)?no crontab for\b/im.test(String(result.stderr || ''))) {
+  // "no crontab for <user>" (Vixie cron, cronie, macOS) or BusyBox's "can't open '<user>': No such file or directory"
+  if (result.status === 1 && /^(?:crontab:\s*)?(?:no crontab for\b|can't open '[^']*': No such file or directory)/im.test(String(result.stderr || ''))) {
     return { exists: false, content: '', bytes: Buffer.alloc(0) }
   }
   throw failure(result)

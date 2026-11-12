@@ -17,8 +17,13 @@ const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'cronly.m
 // 로그 디렉터리는 임시 경로에 만들어 실제 ~/.cronly를 건드리지 않습니다
 const cronlyHome = mkdtempSync(join(tmpdir(), 'cronly-integration-'))
 
-// Default env forces English to avoid inheriting system locale
-const defaultEnv = { ...process.env, CRONLY_LANG: 'en', CRONLY_HOME: cronlyHome, CRONLY_BACKEND: 'cron' }
+// Default env forces English to avoid inheriting system locale.
+// 이 테스트는 crontab 조작을 확인합니다. cron 데몬이 꺼진 환경(컨테이너 등)에서도
+// doctor가 실패하지 않도록, 없는 디렉터리를 프로세스 목록으로 지정해 데몬 점검을 건너뜁니다.
+const defaultEnv = {
+  ...process.env, CRONLY_LANG: 'en', CRONLY_HOME: cronlyHome, CRONLY_BACKEND: 'cron',
+  CRONLY_PROC_DIR: join(cronlyHome, 'no-process-list'),
+}
 
 // 도중에 macOS 권한 창이 다시 떠도 응답할 시간을 둡니다. 너무 짧으면 node만 종료되고
 // 대기 중이던 crontab 프로세스가 남아, 승인되는 순간 오래된 내용을 덮어씁니다.
