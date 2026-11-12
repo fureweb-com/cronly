@@ -842,7 +842,43 @@ test('removeBlockFromCrontab: 수동 엔트리의 공백 포맷을 전역 정리
   const target = parseBlocks(raw)[0]
   const next = removeBlockFromCrontab(raw, target)
 
-  assert.equal(next, raw.replace(target.raw, ''))
+  // 블록과, add가 그 앞에 넣는 빈 줄 하나만 사라진다. 나머지 줄은 그대로 남는다
+  assert.equal(next, [
+    'MAILTO=user@example.com',
+    '',
+    '',
+    '0 * * * * /manual-job',
+    '',
+    '',
+    '',
+    '30 * * * * /another-manual',
+    '',
+  ].join('\n'))
+})
+
+test('removeBlockFromCrontab: add가 넣은 구분 빈 줄까지 지워 add를 되돌림', () => {
+  const blockOf = (name) => buildBlock({ schedule: '0 2 * * *', absolutePath: `/home/user/${name}.sh`, runtime: 'sh' })
+  const [x, y] = [blockOf('x'), blockOf('y')]
+  const remove = (raw, block) => removeBlockFromCrontab(raw, parseBlocks(raw).find((b) => b.raw === block))
+  const cases = [
+    [`${x}\n`, ''],
+    [`A\n\n${x}\n`, 'A\n'],
+    [`A\n\n${x}`, 'A'],
+    [`A\n${x}\n`, 'A\n'],
+    [`A\n\n${x}\n\n${y}\n`, `A\n\n${y}\n`],
+    [`${x}\n\n${y}\n`, `${y}\n`],
+    [`${x}\nB\n`, 'B\n'],
+    [`A\n\n${x}\nB\n`, 'A\nB\n'],
+    [`A\n${x}\n\nB\n`, 'A\n\nB\n'],
+    [`A\n  \n${x}\n`, 'A\n  \n'],
+    [`\n\n${x}\n`, ''],
+  ]
+  for (const [raw, expected] of cases) assert.equal(remove(raw, x), expected, JSON.stringify(raw.replace(x, '<x>')))
+  // 같은 내용의 블록이 둘이면 한 번에 하나씩 지운다
+  const twice = `${x}\n\n${x}\n`
+  assert.equal(remove(twice, x), `${x}\n`)
+  // 이미 지워진 블록은 아무것도 바꾸지 않는다
+  assert.equal(removeBlockFromCrontab('A\n\nB\n', parseBlocks(`${x}\n`)[0]), 'A\n\nB\n')
 })
 
 // ── splitCommandWords / inspectCommand ──────────────────────────────────────
@@ -1813,9 +1849,7 @@ await testAsync('add/remove: UTF-8이 아닌 기존 crontab 내용을 바이트 
     assert.equal((await captureLogs(() => list())).logs.length, 1)
 
     await captureLogs(() => remove(file, {}))
-    const removed = readFileSync(ctx.stateFile)
-    assert.ok(removed.subarray(0, original.length).equals(original))
-    assert.equal(removed.subarray(original.length).toString('utf8').trim(), '')
+    assert.ok(readFileSync(ctx.stateFile).equals(original), 'remove restores the original bytes')
   })
 })
 
@@ -2244,6 +2278,27 @@ await testAsync('remove: 다른 경로로 등록된 같은 파일의 엔트리�
       `Removed: ${file} (id=${makeId(file)})`,
       `Removed: ${viaLink} (id=${makeId(viaLink)})`,
     ])
+  })
+})
+
+await testAsync('add/remove: 등록과 삭제를 반복해도 빈 줄이 쌓이지 않고 원래 crontab으로 돌아옴', async () => {
+  const original = 'MAILTO=user@example.com\n0 * * * * /usr/bin/manual-job\n'
+  await withMockCrontabEnv({ initialContent: original }, async (ctx) => {
+    const [a, b, c] = ['a.mjs', 'b.mjs', 'c.mjs'].map((name) => ctx.createScript(name, ''))
+    const noGaps = () => assert.ok(!/\n\n\n/.test(ctx.readState()), JSON.stringify(ctx.readState()))
+    await captureLogs(async () => {
+      for (let round = 0; round < 2; round++) {
+        await add(a, { schedule: '0 1 * * *' }); noGaps()
+        await add(b, { schedule: '0 2 * * *' }); noGaps()
+        await add(c, { schedule: '0 3 * * *' }); noGaps()
+        await remove(b, {}); noGaps()
+        await add(b, { schedule: '0 4 * * *' }); noGaps()
+        await remove(a, {}); noGaps()
+        await remove(c, {}); noGaps()
+        await remove(b, {})
+        assert.equal(ctx.readState(), original)
+      }
+    })
   })
 })
 

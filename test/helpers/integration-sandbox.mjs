@@ -10,8 +10,6 @@ export function runSandboxedIntegration({ original = '# manual\n0 0 * * * /bin/t
   mkdirSync(bin)
   const state = join(dir, 'state')
   const mutations = join(dir, 'mutations')
-  const backup = join(dir, 'backup')
-  writeFileSync(backup, original || '')
   if (original !== null) writeFileSync(state, original)
   writeFileSync(join(bin, 'crontab'), `#!/bin/sh
 if [ "$1" = "-l" ]; then
@@ -23,7 +21,7 @@ if [ "$1" = "-l" ]; then
   if [ -f "$SAFETY_DIR/state" ]; then cat "$SAFETY_DIR/state"; else echo "no crontab for test" >&2; exit 1; fi
 elif [ "$1" = "-" ]; then
   cat > "$SAFETY_DIR/input"
-  if [ "$SAFETY_RESTORE_FAIL" = "1" ] && [ -f "$SAFETY_DIR/mutations" ] && cmp -s "$SAFETY_DIR/input" "$SAFETY_DIR/backup"; then
+  if [ "$SAFETY_RESTORE_FAIL" = "1" ] && [ "$CRONLY_TEST_RESTORE" = "1" ]; then
     echo "restore denied" >&2
     exit 1
   fi

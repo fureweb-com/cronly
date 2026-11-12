@@ -15,7 +15,11 @@ export function readCrontabSnapshot() {
   throw failure(result)
 }
 
+// CRONLY_TEST_RESTORE marks this call for the sandboxed crontab used by the
+// unit tests; the real crontab ignores it.
 export function restoreCrontabSnapshot(snapshot) {
-  const result = spawnSync('crontab', [snapshot.exists ? '-' : '-r'], { input: snapshot.bytes })
+  const result = spawnSync('crontab', [snapshot.exists ? '-' : '-r'], {
+    input: snapshot.bytes, env: { ...process.env, CRONLY_TEST_RESTORE: '1' },
+  })
   if (result.status !== 0) throw failure(result)
 }
