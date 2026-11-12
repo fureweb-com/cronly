@@ -160,7 +160,8 @@ if [ "$1" = "-" ]; then
     echo "$MOCK_WRITE_FAIL" >&2
     exit 1
   fi
-  cat > "$state"
+  # Like crontab, replace the file only after reading all of the input.
+  cat > "$state.new" && mv "$state.new" "$state"
   if [ -n "$MOCK_WRITE_LOG" ]; then
     cp "$state" "$MOCK_WRITE_LOG"
   fi
@@ -1671,6 +1672,22 @@ await testAsync('writeCrontab: macOS가 막으면(Operation not permitted) 해�
     await assert.rejects(() => writeCrontab('0 * * * * /job\n', { platform: 'linux' }), {
       message: 'crontab - failed: crontab: tmp/tmp.123: Operation not permitted',
     })
+  })
+})
+
+await testAsync('writeCrontab: 자식 추적에 실패하면 입력을 닫지 않고 중단해 crontab을 비우지 않음', async () => {
+  const original = '# manual\n0 0 * * * /bin/true\n'
+  await withMockCrontabEnv({ initialContent: original }, async (ctx) => {
+    let childPid
+    const trackProcess = (pid) => {
+      childPid = pid
+      throw Object.assign(new Error('no space left on device'), { code: 'ENOSPC' })
+    }
+    await assert.rejects(() => writeCrontab('0 * * * * /job\n', { trackProcess }), { code: 'ENOSPC' })
+    // 자식이 살아서 입력 종료를 기다리면, CLI가 끝나는 순간 빈 crontab을 설치한다
+    assert.throws(() => process.kill(childPid, 0), { code: 'ESRCH' })
+    assert.equal(ctx.readState(), original)
+    assert.equal(ctx.readWriteLog(), '')
   })
 })
 
