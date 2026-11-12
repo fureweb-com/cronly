@@ -1629,6 +1629,7 @@ test('i18n catalogs: 함수형 메시지가 모든 locale에서 렌더링돼요'
     length: 1200,
     other: 'ef567890',
     pids: '1234',
+    shebang: '/bin/bash -e',
   }
 
   for (const [locale, catalog] of Object.entries(LOCALE_CATALOGS)) {
@@ -2009,29 +2010,38 @@ await testAsync('add: exec 런타임은 실행 권한이 없으면 거부', asyn
   })
 })
 
-await testAsync('readShebangRuntime: #! 줄이 가리키는 인터프리터를 읽음', async () => {
+await testAsync('readShebangRuntime: #! 줄에 따라 sh·인터프리터·exec 중 무엇으로 실행할지 정함', async () => {
   await withMockCrontabEnv({}, async (ctx) => {
+    // [첫 줄, 실행 권한이 있을 때, 없을 때]
     const cases = [
-      ['#!/bin/sh\necho hi\n', 'sh'],
-      ['#!/usr/bin/env sh\n', 'sh'],
-      ['#! /bin/sh -e\n', 'sh'],
-      ['#!/bin/bash\n', '/bin/bash'],
-      ['#!/bin/bash -eu\necho hi\n', '/bin/bash'],
-      ['#!/usr/bin/env bash\n', 'bash'],
-      ['#!/usr/bin/env -S bash -e\n', 'bash'],
-      ['#!/usr/bin/env LANG=C zsh\n', 'zsh'],
-      ['#!/bin/bash\r\necho hi\r\n', '/bin/bash'],
-      ['#!/opt/tools/bash', '/opt/tools/bash'],
-      [`#!/bin/bash ${'x'.repeat(600)}\n`, '/bin/bash'],
-      ['echo no shebang\n', null],
-      ['', null],
-      ['#!\n', null],
-      ['#!/usr/bin/env\n', null],
-      ['#!/usr/bin/env -S\n', null],
-      [' #!/bin/bash\n', null],
+      ['#!/bin/sh\necho hi\n', 'sh', 'sh'],
+      ['#!/usr/bin/env sh\n', 'sh', 'sh'],
+      ['#! /bin/sh -e\n', 'sh', 'sh'],
+      ['#!/bin/bash\n', '/bin/bash', '/bin/bash'],
+      ['#!/usr/bin/env bash\n', 'bash', 'bash'],
+      ['#!/bin/bash\r\necho hi\r\n', '/bin/bash', '/bin/bash'],
+      ['#!/opt/tools/bash', '/opt/tools/bash', '/opt/tools/bash'],
+      // 인자가 있는 줄은 커널만 그대로 적용할 수 있다: 실행 권한이 있으면 exec
+      ['#!/bin/bash -eu\necho hi\n', 'exec', '/bin/bash'],
+      [`#!/bin/bash -${'x'.repeat(600)}\n`, 'exec', '/bin/bash'],
+      ['#!/usr/bin/env bash -e\n', 'exec', 'bash'],
+      // 인터프리터만 꺼내 쓰면 스크립트 경로를 applet 이름으로 받는다
+      ['#!/bin/busybox sh\n', 'exec', 'sh'],
+      // env의 옵션·변수 지정은 해석하지 않는다
+      ['#!/usr/bin/env -S bash -e\n', 'exec', 'sh'],
+      ['#!/usr/bin/env -u FOO bash\n', 'exec', 'sh'],
+      ['#!/usr/bin/env LANG=C zsh\n', 'exec', 'sh'],
+      // #! 줄이 없거나 명령이 빠져 있으면 null
+      ['echo no shebang\n', null, null],
+      ['', null, null],
+      ['#!\n', null, null],
+      ['#!/usr/bin/env\n', null, null],
+      [' #!/bin/bash\n', null, null],
     ]
-    cases.forEach(([source, expected], i) => {
-      assert.equal(readShebangRuntime(ctx.createScript(`case-${i}.sh`, source)), expected, JSON.stringify(source.slice(0, 40)))
+    cases.forEach(([source, executable, plain], i) => {
+      const label = JSON.stringify(source.slice(0, 40))
+      assert.equal(readShebangRuntime(ctx.createScript(`exec-${i}.sh`, source, 0o755)), executable, `${label} (executable)`)
+      assert.equal(readShebangRuntime(ctx.createScript(`plain-${i}.sh`, source, 0o644)), plain, `${label} (not executable)`)
     })
     assert.equal(readShebangRuntime(join(ctx.dir, 'missing.sh')), null)
   })
@@ -2052,6 +2062,9 @@ await testAsync('resolveJobRuntime: --runtime이 없으면 확장자로, .sh는 
     assert.deepEqual(resolveJobRuntime(posix, undefined, env), { runtime: 'sh', runtimePath: '/bin/sh' })
     assert.deepEqual(resolveJobRuntime(byPath, undefined, env), { runtime: shell, runtimePath: shell })
     assert.deepEqual(resolveJobRuntime(byName, undefined, env), { runtime: 'myshell', runtimePath: shell })
+    // 인자가 있는 #! 줄: 실행 권한이 있으면 스크립트를 직접 실행
+    assert.deepEqual(resolveJobRuntime(ctx.createScript('strict.sh', `#!${shell} -e\necho hi\n`), undefined, env), { runtime: 'exec', runtimePath: '' })
+    assert.deepEqual(resolveJobRuntime(ctx.createScript('loose.sh', `#!${shell} -e\necho hi\n`, 0o644), undefined, env), { runtime: shell, runtimePath: shell })
     // 명시한 --runtime은 #! 줄보다 우선
     assert.deepEqual(resolveJobRuntime(byPath, 'sh', env), { runtime: 'sh', runtimePath: '/bin/sh' })
     assert.deepEqual(resolveJobRuntime(plain, 'myshell', env), { runtime: 'myshell', runtimePath: shell })
@@ -2078,6 +2091,36 @@ await testAsync('add: .sh는 /bin/sh가 아니라 #! 줄의 인터프리터로 �
   })
 })
 
+await testAsync('add: 인자가 있는 #! 줄은 실행 권한이 있으면 그대로 적용되도록 exec로, 없으면 sh로 등록', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    if (!existsSync('/bin/bash')) return
+    // -e는 실패한 명령에서 멈추게 한다. 인터프리터만 꺼내 쓰면 이 옵션이 사라진다
+    const strict = ctx.createScript('strict.sh', '#!/bin/bash -e\necho before\nfalse\necho after\n')
+    const logPath = join(ctx.logDir, `${makeId(strict)}.log`)
+    await captureLogs(() => add(strict, { schedule: '0 8 * * *' }))
+    let [block] = parseBlocks(ctx.readState())
+    assert.equal(block.runtime, 'exec')
+    assert.deepEqual(inspectCommand(block.command, strict), { runtimeBin: null, logPath })
+    const run = spawnSync('/bin/sh', ['-c', decodeCronCommand(block.command)], { encoding: 'utf8' })
+    assert.notEqual(run.status, 0)
+    assert.equal(readFileSync(logPath, 'utf8'), 'before\n')
+    await captureLogs(() => remove(strict, {}))
+
+    // "busybox sh"처럼 인자가 있어야 도는 줄: 인터프리터만 꺼내 쓰면 스크립트 경로가 applet 이름이 된다
+    const applet = ctx.createScript('applet.sh', '#!/bin/busybox sh\necho hi\n')
+    await captureLogs(() => add(applet, { schedule: '0 8 * * *' }))
+    ;[block] = parseBlocks(ctx.readState())
+    assert.equal(block.runtime, 'exec')
+    assert.ok(!block.command.includes('busybox'))
+    // 실행 권한이 없으면 1.0.1처럼 /bin/sh로 실행
+    chmodSync(applet, 0o644)
+    await captureLogs(() => add(applet, { schedule: '0 8 * * *' }))
+    ;[block] = parseBlocks(ctx.readState())
+    assert.equal(block.runtime, 'sh')
+    assert.equal(inspectCommand(block.command, applet).runtimeBin, '/bin/sh')
+  })
+})
+
 await testAsync('add: #! 줄의 인터프리터가 없으면 crontab을 건드리지 않고 거부', async () => {
   await withMockCrontabEnv({}, async (ctx) => {
     const file = ctx.createScript('job.sh', '#!/no/such/shell\necho hi\n')
@@ -2099,7 +2142,7 @@ await testAsync('doctor: #! 줄과 달리 /bin/sh로 남아 있는 엔트리를 
     assert.equal(findIgnoredShebang(legacy), shell)
 
     let report = await captureLogs(() => doctor())
-    assert.ok(report.logs.includes(`  ${legacy.id}: runs with /bin/sh although the #! line of the script names ${shell}. Run cronly add again to use it.`))
+    assert.ok(report.logs.includes(`  ${legacy.id}: runs with /bin/sh although the script starts with #!${shell}. Run cronly add again to follow that line.`))
     assert.equal(report.logs.at(-1), 'All checks passed.')
     assert.equal(report.result, true)
 
@@ -2108,9 +2151,10 @@ await testAsync('doctor: #! 줄과 달리 /bin/sh로 남아 있는 엔트리를 
     assert.equal(current.runtime, shell)
     assert.equal(findIgnoredShebang(current), null)
     report = await captureLogs(() => doctor())
-    assert.ok(!report.logs.some((line) => line.includes('#! line')))
+    assert.ok(!report.logs.some((line) => line.includes('although the script starts with')))
     assert.equal(report.result, true)
 
+    assert.equal(findIgnoredShebang({ runtime: 'sh', path: ctx.createScript('strict.sh', '#!/bin/bash  -e\n') }), '/bin/bash -e')
     assert.equal(findIgnoredShebang({ runtime: 'sh', path: ctx.createScript('posix.sh', '#!/bin/sh\n') }), null)
     assert.equal(findIgnoredShebang({ runtime: 'sh', path: ctx.createScript('plain.sh', 'echo hi\n') }), null)
   })

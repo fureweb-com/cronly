@@ -138,7 +138,7 @@ cronly add ./custom-binary --daily 08:00 --runtime exec
 
 `--runtime`에는 다른 인터프리터의 이름이나 경로도 쓸 수 있어요 (예: `--runtime python3`). `add`할 때 절대 경로로 바꿔서 기록하기 때문에 cron에서도 찾을 수 있어요. 옵션은 `--daily 08:00`과 `--daily=08:00` 둘 다 쓸 수 있어요.
 
-`--runtime`을 생략하면 `.js`, `.mjs`, `.cjs` 파일은 Node.js로 실행하고, `.sh` 파일은 `#!` 줄에 적힌 인터프리터(예: `#!/bin/bash`, `#!/usr/bin/env bash`)로 실행해요. `#!` 줄이 없으면 `/bin/sh`를 써요. `#!` 줄의 옵션(`-e` 등)은 적용되지 않으니, 스크립트를 적힌 그대로 실행하려면 실행 권한을 주고 `--runtime exec`를 써 주세요. `--runtime sh`는 항상 `/bin/sh`를 써요.
+`--runtime`을 생략하면 `.js`, `.mjs`, `.cjs` 파일은 Node.js로 실행하고, `.sh` 파일은 `#!` 줄을 따라요. `#!/bin/bash`나 `#!/usr/bin/env bash`는 그 인터프리터로 실행하고, 인터프리터는 `add`할 때 절대 경로로 바꿔서 기록해요. `#!/bin/bash -e`나 `#!/bin/busybox sh`처럼 인자가 있는 줄은 스크립트에 실행 권한이 있으면 스크립트를 직접 실행해서 적힌 그대로 적용하고, 실행 권한이 없으면 옵션은 적용되지 않아요. `sh`용 스크립트와 `#!` 줄이 없는 스크립트는 `/bin/sh`로 실행하고, `--runtime sh`는 항상 `/bin/sh`를 써요.
 
 같은 파일을 다시 `add`하면 **추가가 아닌 업데이트**로 동작해요:
 

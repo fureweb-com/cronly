@@ -138,7 +138,7 @@ cronly add ./custom-binary --daily 08:00 --runtime exec
 
 `--runtime` 也可以指定其他解释器的名称或路径（例如 `--runtime python3`）。执行 `add` 时会解析为绝对路径并记录，因此 cron 也能找到它。选项可以写成 `--daily 08:00` 或 `--daily=08:00`。
 
-省略 `--runtime` 时，`.js`、`.mjs`、`.cjs` 文件用 Node.js 运行，`.sh` 文件用其 `#!` 行指定的解释器运行（例如 `#!/bin/bash`、`#!/usr/bin/env bash`），没有 `#!` 行时使用 `/bin/sh`。`#!` 行中的选项（如 `-e`）不会生效；若要完全按脚本所写的方式运行，请为脚本添加执行权限并使用 `--runtime exec`。`--runtime sh` 始终使用 `/bin/sh`。
+省略 `--runtime` 时，`.js`、`.mjs`、`.cjs` 文件用 Node.js 运行，`.sh` 文件则遵循其 `#!` 行。`#!/bin/bash` 或 `#!/usr/bin/env bash` 用该解释器运行，解释器会在执行 `add` 时解析为绝对路径并记录。`#!/bin/bash -e`、`#!/bin/busybox sh` 这类带参数的行，在脚本有执行权限时通过直接执行脚本来原样生效；没有执行权限时其中的选项不会生效。面向 `sh` 的脚本和没有 `#!` 行的脚本用 `/bin/sh` 运行，`--runtime sh` 始终使用 `/bin/sh`。
 
 对同一文件再次执行 `add` 时，**以更新而非新增方式运行**：
 
