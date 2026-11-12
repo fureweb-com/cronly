@@ -1555,6 +1555,7 @@ test('i18n catalogs: 함수형 메시지가 모든 locale에서 렌더링돼요'
     runtime: 'python3',
     length: 1200,
     other: 'ef567890',
+    pids: '1234',
   }
 
   for (const [locale, catalog] of Object.entries(LOCALE_CATALOGS)) {
@@ -1569,6 +1570,12 @@ test('i18n catalogs: 함수형 메시지가 모든 locale에서 렌더링돼요'
     assert.equal(typeof interval({ flag: 'every-hours', reason: 'no_value' }), 'string', `${locale}:no_value`)
     assert.equal(typeof interval({ flag: 'every-hours', value: 'abc', reason: 'not_integer' }), 'string', `${locale}:not_integer`)
     assert.equal(typeof interval({ flag: 'every-hours', value: '25', reason: 'out_of_range', min: 1, max: 23 }), 'string', `${locale}:out_of_range`)
+
+    const busy = catalog['crontab.lock_busy']
+    const withPids = busy({ path: '/tmp/x.lock', pids: '12, 34' })
+    const withoutPids = busy({ path: '/tmp/x.lock', pids: '' })
+    assert.ok(withPids.includes('12, 34') && withPids.includes('/tmp/x.lock'), `${locale}:lock_busy with pids`)
+    assert.ok(withoutPids.includes('/tmp/x.lock') && withoutPids.length < withPids.length, `${locale}:lock_busy without pids`)
   }
 })
 
@@ -2798,21 +2805,77 @@ await testAsync('crontab 잠금: 살아 있는 소유자의 잠금을 시간 초
     mkdirSync(lockPath)
     const owner = join(lockPath, `owner-${process.pid}-abcd`)
     writeFileSync(owner, '')
-    await assert.rejects(() => withCrontabLock(async () => assert.fail('live lock acquired'), { lockPath, timeoutMs: 0 }), /Another Cronly/)
+    // 메시지만 보고 누가 잡고 있는지, 멈춘 잠금이면 무엇을 지우면 되는지 알 수 있어야 한다
+    await assert.rejects(() => withCrontabLock(async () => assert.fail('live lock acquired'), { lockPath, timeoutMs: 0 }), {
+      message: `Another Cronly command is updating scheduled jobs (process ${process.pid}). Try again shortly. `
+        + `If no Cronly command is running, delete ${lockPath} and try again.`,
+    })
     assert.equal(existsSync(owner), true)
     const dead = spawnSync(process.execPath, ['-e', ''])
     const childOwner = join(lockPath, `owner-${dead.pid}-abcd`)
     writeFileSync(childOwner, '')
-    reapAbandonedLock(lockPath)
+    assert.deepEqual(reapAbandonedLock(lockPath), [process.pid])
     assert.ok(existsSync(childOwner), 'live parent must retain a child marker until its close callback')
+  })
+})
+
+await testAsync('crontab 잠금: 신호를 보낼 수 없는 PID(EPERM)는 살아 있는 소유자로 보고 회수하지 않음', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const lockPath = join(ctx.dir, 'lock')
+    const dead = spawnSync(process.execPath, ['-e', ''])
+    mkdirSync(lockPath)
+    const owner = join(lockPath, `owner-${dead.pid}-abcd`)
+    writeFileSync(owner, '')
     const originalKill = process.kill
-    process.kill = () => { throw Object.assign(new Error('denied'), { code: 'EPERM' }) }
+    // 사용자 ID를 바꾼 crontab 자식이거나, 끝난 소유자의 PID를 다른 사용자의 프로세스가 다시 쓰는 경우
+    process.kill = () => { throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' }) }
     try {
-      assert.throws(() => reapAbandonedLock(lockPath), /denied/)
+      assert.deepEqual(reapAbandonedLock(lockPath), [dead.pid])
+      assert.equal(existsSync(owner), true)
+      await assert.rejects(
+        () => withCrontabLock(async () => assert.fail('lock acquired'), { lockPath, timeoutMs: 0 }),
+        (err) => err.message.includes(`(process ${dead.pid})`) && err.message.includes(`delete ${lockPath} and try again`)
+      )
+      process.kill = () => { throw Object.assign(new Error('unexpected kill failure'), { code: 'EINVAL' }) }
+      assert.throws(() => reapAbandonedLock(lockPath), /unexpected kill failure/)
       assert.equal(existsSync(owner), true)
     } finally {
       process.kill = originalKill
     }
+    // 실제로는 끝난 프로세스이므로 다음 명령이 회수한다
+    assert.equal(await withCrontabLock(async () => 'recovered', { lockPath, pollMs: 1 }), 'recovered')
+  })
+})
+
+await testAsync('crontab 잠금: 사용 중에 잠금이 지워지거나 다른 명령의 잠금으로 바뀌어도 결과를 잃지 않음', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const lockPath = join(ctx.dir, 'lock')
+    // 안내에 따라 잠금을 직접 지운 경우: 해제할 것이 없어도 작업 결과는 그대로 돌려준다
+    assert.equal(await withCrontabLock(async (trackProcess) => {
+      const untrack = trackProcess(1)
+      rmSync(lockPath, { recursive: true })
+      untrack()
+      return 'written'
+    }, { lockPath }), 'written')
+    assert.equal(existsSync(lockPath), false)
+
+    // 지워진 자리에 다른 명령이 새 잠금을 잡은 경우: 남의 잠금은 건드리지 않는다
+    const successor = join(lockPath, `owner-${process.pid}-ffff`)
+    assert.equal(await withCrontabLock(async () => {
+      rmSync(lockPath, { recursive: true })
+      mkdirSync(lockPath)
+      writeFileSync(successor, '')
+      return 'written'
+    }, { lockPath }), 'written')
+    assert.equal(existsSync(successor), true)
+    rmSync(lockPath, { recursive: true })
+
+    // 그 밖의 해제 오류는 숨기지 않는다
+    await assert.rejects(() => withCrontabLock(async () => {
+      const [marker] = readdirSync(lockPath)
+      rmSync(join(lockPath, marker))
+      mkdirSync(join(lockPath, marker))
+    }, { lockPath }), (err) => ['EPERM', 'EISDIR'].includes(err.code))
   })
 })
 

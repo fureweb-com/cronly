@@ -301,7 +301,7 @@ npm run test:integration
 ## 限制
 
 - 支持 macOS 用户级 LaunchAgent 和 Linux 用户 crontab
-- 同一用户的 Cronly `add`/`remove` 按顺序处理。通过 `crontab -e` 或其他工具进行的并发编辑不受此锁保护。
+- 同一用户的 Cronly `add`/`remove` 按顺序处理。通过 `crontab -e` 或其他工具进行的并发编辑不受此锁保护。如果命令在持有锁时被强制终止，且其进程 ID 之后被其他进程重用，下一条命令会提示 `/tmp` 下的锁目录和该进程 ID；确认没有 Cronly 命令在运行后，请删除该目录。
 - 不支持 systemd timer 和 `/etc/cron.d`
 - 不支持分布式环境（仅限单机）
 - 不包含 overlap execution 防止

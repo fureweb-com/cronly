@@ -301,7 +301,7 @@ npm run test:integration
 ## Limitations
 
 - Per-user LaunchAgents on macOS; user crontab on Linux
-- Concurrent Cronly `add`/`remove` commands are serialized per user. Concurrent edits through `crontab -e` or other tools are outside this lock.
+- Concurrent Cronly `add`/`remove` commands are serialized per user. Concurrent edits through `crontab -e` or other tools are outside this lock. If a command is killed while it holds the lock and another process later reuses its process ID, the next command reports the lock directory under `/tmp` and that process ID; delete the directory when no Cronly command is running.
 - No systemd timer or `/etc/cron.d` support
 - Single machine only (no distributed environments)
 - No overlap execution prevention
