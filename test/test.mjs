@@ -32,6 +32,7 @@ import {
   removeBlockFromCrontab,
   resolveRuntimePath,
 } from '../lib/commands.mjs'
+import { findIgnoredShebang, readShebangRuntime, resolveJobRuntime } from '../lib/job.mjs'
 import { parseArgv } from '../lib/cli.mjs'
 import { decodeCrontab, encodeCrontab, readCrontab, writeCrontab } from '../lib/crontab.mjs'
 import { normalizeLocale, detectLocale, setLocale, getLocale, t, getUsage } from '../lib/i18n.mjs'
@@ -1908,6 +1909,113 @@ await testAsync('add: exec 런타임은 실행 권한이 없으면 거부', asyn
   await withMockCrontabEnv({}, async (ctx) => {
     const file = ctx.createScript('tool', '#!/bin/sh\necho hi\n', 0o644)
     await assert.rejects(() => add(file, { schedule: '0 8 * * *', runtime: 'exec' }), /Not executable/)
+  })
+})
+
+await testAsync('readShebangRuntime: #! 줄이 가리키는 인터프리터를 읽음', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const cases = [
+      ['#!/bin/sh\necho hi\n', 'sh'],
+      ['#!/usr/bin/env sh\n', 'sh'],
+      ['#! /bin/sh -e\n', 'sh'],
+      ['#!/bin/bash\n', '/bin/bash'],
+      ['#!/bin/bash -eu\necho hi\n', '/bin/bash'],
+      ['#!/usr/bin/env bash\n', 'bash'],
+      ['#!/usr/bin/env -S bash -e\n', 'bash'],
+      ['#!/usr/bin/env LANG=C zsh\n', 'zsh'],
+      ['#!/bin/bash\r\necho hi\r\n', '/bin/bash'],
+      ['#!/opt/tools/bash', '/opt/tools/bash'],
+      [`#!/bin/bash ${'x'.repeat(600)}\n`, '/bin/bash'],
+      ['echo no shebang\n', null],
+      ['', null],
+      ['#!\n', null],
+      ['#!/usr/bin/env\n', null],
+      ['#!/usr/bin/env -S\n', null],
+      [' #!/bin/bash\n', null],
+    ]
+    cases.forEach(([source, expected], i) => {
+      assert.equal(readShebangRuntime(ctx.createScript(`case-${i}.sh`, source)), expected, JSON.stringify(source.slice(0, 40)))
+    })
+    assert.equal(readShebangRuntime(join(ctx.dir, 'missing.sh')), null)
+  })
+})
+
+await testAsync('resolveJobRuntime: --runtime이 없으면 확장자로, .sh는 #! 줄로 런타임을 정함', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const shell = ctx.createScript('myshell', '#!/bin/sh\nexec /bin/sh "$@"\n')
+    const env = { PATH: ctx.dir }
+    const plain = ctx.createScript('plain.sh', 'echo hi\n')
+    const posix = ctx.createScript('posix.sh', '#!/bin/sh\necho hi\n')
+    const byPath = ctx.createScript('by-path.sh', `#!${shell}\necho hi\n`)
+    const byName = ctx.createScript('by-name.sh', '#!/usr/bin/env myshell\necho hi\n')
+    const missing = ctx.createScript('missing.sh', '#!/no/such/shell\necho hi\n')
+
+    assert.deepEqual(resolveJobRuntime(ctx.createScript('job.mjs', ''), undefined, env), { runtime: 'node', runtimePath: process.execPath })
+    assert.deepEqual(resolveJobRuntime(plain, undefined, env), { runtime: 'sh', runtimePath: '/bin/sh' })
+    assert.deepEqual(resolveJobRuntime(posix, undefined, env), { runtime: 'sh', runtimePath: '/bin/sh' })
+    assert.deepEqual(resolveJobRuntime(byPath, undefined, env), { runtime: shell, runtimePath: shell })
+    assert.deepEqual(resolveJobRuntime(byName, undefined, env), { runtime: 'myshell', runtimePath: shell })
+    // 명시한 --runtime은 #! 줄보다 우선
+    assert.deepEqual(resolveJobRuntime(byPath, 'sh', env), { runtime: 'sh', runtimePath: '/bin/sh' })
+    assert.deepEqual(resolveJobRuntime(plain, 'myshell', env), { runtime: 'myshell', runtimePath: shell })
+    assert.throws(() => resolveJobRuntime(missing, undefined, env), /Runtime not found: \/no\/such\/shell \(named on the #! line of .*missing\.sh\)/)
+    assert.throws(() => resolveJobRuntime(byName, undefined, {}), /Runtime not found: myshell \(named on the #! line/)
+    assert.throws(() => resolveJobRuntime(ctx.createScript('job.py', ''), undefined, env), /Cannot infer runtime/)
+    assert.throws(() => resolveJobRuntime(plain, 'nope', env), { message: 'Runtime not found: nope' })
+  })
+})
+
+await testAsync('add: .sh는 /bin/sh가 아니라 #! 줄의 인터프리터로 실행되도록 등록', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    // bash 전용 문법: dash가 /bin/sh인 Debian·Ubuntu에서 /bin/sh로 넘기면 문법 오류로 끝난다
+    if (!existsSync('/bin/bash')) return
+    const file = ctx.createScript('arrays.sh', '#!/bin/bash\nitems=(a b c)\n[[ ${#items[@]} -eq 3 ]] && echo "count=${#items[@]}"\n', 0o644)
+    await captureLogs(() => add(file, { schedule: '0 8 * * *' }))
+
+    const [block] = parseBlocks(ctx.readState())
+    assert.equal(block.runtime, '/bin/bash')
+    assert.equal(inspectCommand(block.command, file).runtimeBin, '/bin/bash')
+    const run = spawnSync('/bin/sh', ['-c', decodeCronCommand(block.command)], { encoding: 'utf8' })
+    assert.equal(run.status, 0, run.stderr)
+    assert.equal(readFileSync(join(ctx.logDir, `${makeId(file)}.log`), 'utf8'), 'count=3\n')
+  })
+})
+
+await testAsync('add: #! 줄의 인터프리터가 없으면 crontab을 건드리지 않고 거부', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const file = ctx.createScript('job.sh', '#!/no/such/shell\necho hi\n')
+    await assert.rejects(() => add(file, { schedule: '0 8 * * *' }), /named on the #! line/)
+    assert.equal(ctx.readState(), '')
+    // 직접 고르면 등록할 수 있다
+    await captureLogs(() => add(file, { schedule: '0 8 * * *', runtime: 'sh' }))
+    assert.equal(parseBlocks(ctx.readState())[0].runtime, 'sh')
+  })
+})
+
+await testAsync('doctor: #! 줄과 달리 /bin/sh로 남아 있는 엔트리를 실패 없이 알림', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const shell = ctx.createScript('myshell', '#!/bin/sh\nexec /bin/sh "$@"\n')
+    const file = ctx.createScript('job.sh', `#!${shell}\necho hi\n`)
+    // 예전 버전이 등록한 엔트리
+    ctx.setState(`${buildBlock({ schedule: '0 8 * * *', absolutePath: file, runtime: 'sh' })}\n`)
+    const [legacy] = parseBlocks(ctx.readState())
+    assert.equal(findIgnoredShebang(legacy), shell)
+
+    let report = await captureLogs(() => doctor())
+    assert.ok(report.logs.includes(`  ${legacy.id}: runs with /bin/sh although the #! line of the script names ${shell}. Run cronly add again to use it.`))
+    assert.equal(report.logs.at(-1), 'All checks passed.')
+    assert.equal(report.result, true)
+
+    await captureLogs(() => add(file, { schedule: '0 8 * * *' }))
+    const [current] = parseBlocks(ctx.readState())
+    assert.equal(current.runtime, shell)
+    assert.equal(findIgnoredShebang(current), null)
+    report = await captureLogs(() => doctor())
+    assert.ok(!report.logs.some((line) => line.includes('#! line')))
+    assert.equal(report.result, true)
+
+    assert.equal(findIgnoredShebang({ runtime: 'sh', path: ctx.createScript('posix.sh', '#!/bin/sh\n') }), null)
+    assert.equal(findIgnoredShebang({ runtime: 'sh', path: ctx.createScript('plain.sh', 'echo hi\n') }), null)
   })
 })
 

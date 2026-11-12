@@ -138,6 +138,8 @@ cronly add ./custom-binary --daily 08:00 --runtime exec
 
 `--runtime`에는 다른 인터프리터의 이름이나 경로도 쓸 수 있어요 (예: `--runtime python3`). `add`할 때 절대 경로로 바꿔서 기록하기 때문에 cron에서도 찾을 수 있어요. 옵션은 `--daily 08:00`과 `--daily=08:00` 둘 다 쓸 수 있어요.
 
+`--runtime`을 생략하면 `.js`, `.mjs`, `.cjs` 파일은 Node.js로 실행하고, `.sh` 파일은 `#!` 줄에 적힌 인터프리터(예: `#!/bin/bash`, `#!/usr/bin/env bash`)로 실행해요. `#!` 줄이 없으면 `/bin/sh`를 써요. `#!` 줄의 옵션(`-e` 등)은 적용되지 않으니, 스크립트를 적힌 그대로 실행하려면 실행 권한을 주고 `--runtime exec`를 써 주세요. `--runtime sh`는 항상 `/bin/sh`를 써요.
+
 같은 파일을 다시 `add`하면 **추가가 아닌 업데이트**로 동작해요:
 
 ```bash
@@ -228,7 +230,7 @@ cron은 최소한의 환경으로 작업을 실행해서, 터미널에서는 잘
 - **로그**: stdout과 stderr를 `~/.cronly/logs/<id>.log`에 이어서 기록해요. `CRONLY_HOME`으로 기준 디렉터리를 바꿀 수 있어요. 로그 로테이션은 하지 않아요.
 - **Node.js 버전**: 작업은 등록할 때 쓴 Node.js 실행 파일 그대로 실행돼요 (예: nvm의 버전별 디렉터리). 그 버전을 지우면 `cronly doctor`가 알려 주니, `cronly add`를 다시 실행해서 현재 버전으로 바꿔 주세요.
 
-예전 버전의 Cronly로 등록한 엔트리는 `cronly add`를 다시 실행하기 전까지 이전 명령 형태를 유지해요.
+예전 버전의 Cronly로 등록한 엔트리는 `cronly add`를 다시 실행하기 전까지 이전 명령 형태를 유지해요. 특히 1.0.1 이하에서 등록한 `.sh` 엔트리는 계속 `/bin/sh`로 실행돼요. 스크립트가 다른 인터프리터를 가리키는 엔트리는 `cronly doctor`가 알려 줘요.
 
 ## 중복 등록 방지 방식
 

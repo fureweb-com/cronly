@@ -138,6 +138,8 @@ cronly add ./custom-binary --daily 08:00 --runtime exec
 
 `--runtime` 也可以指定其他解释器的名称或路径（例如 `--runtime python3`）。执行 `add` 时会解析为绝对路径并记录，因此 cron 也能找到它。选项可以写成 `--daily 08:00` 或 `--daily=08:00`。
 
+省略 `--runtime` 时，`.js`、`.mjs`、`.cjs` 文件用 Node.js 运行，`.sh` 文件用其 `#!` 行指定的解释器运行（例如 `#!/bin/bash`、`#!/usr/bin/env bash`），没有 `#!` 行时使用 `/bin/sh`。`#!` 行中的选项（如 `-e`）不会生效；若要完全按脚本所写的方式运行，请为脚本添加执行权限并使用 `--runtime exec`。`--runtime sh` 始终使用 `/bin/sh`。
+
 对同一文件再次执行 `add` 时，**以更新而非新增方式运行**：
 
 ```bash
@@ -228,7 +230,7 @@ cron 以最精简的环境启动任务，因此在终端中正常运行的脚本
 - **日志**：stdout 和 stderr 会追加到 `~/.cronly/logs/<id>.log`。可通过 `CRONLY_HOME` 更改基础目录。日志不会轮转。
 - **Node.js 版本**：任务使用注册时的 Node.js 可执行文件运行（例如 nvm 的版本目录）。删除该版本后，`cronly doctor` 会报告问题；请重新执行 `cronly add` 切换到当前版本。
 
-由旧版 Cronly 注册的条目，在重新执行 `cronly add` 之前会保留旧的命令格式。
+由旧版 Cronly 注册的条目，在重新执行 `cronly add` 之前会保留旧的命令格式。尤其是 1.0.1 及更早版本注册的 `.sh` 条目仍以 `/bin/sh` 运行；脚本指定了其他解释器的条目，`cronly doctor` 会给出提示。
 
 ## 防重复注册机制
 

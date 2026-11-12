@@ -169,6 +169,18 @@ export async function runLaunchdTests({ test, testAsync, captureLogs, withPatche
       assert.equal(findEntryIssues({...job,runtime:'exec',runtimePath:''}).length,0)
     })
   })
+  await testAsync('launchd: .sh는 #! 줄의 인터프리터로 등록하고 /bin/sh로 남은 작업은 doctor가 실패 없이 알림',async()=>{
+    await withLaunchdSandbox(async ctx=>{
+      const shell=ctx.script('myshell','#!/bin/sh\nexec /bin/sh "$@"\n');const file=ctx.script('job.sh',`#!${shell}\necho ok\n`)
+      await captureLogs(()=>add(file,{schedule:'@daily'}))
+      let [job]=readLaunchdJobs();assert.equal(job.runtime,shell);assert.deepEqual(launchdConfig(job).ProgramArguments,[shell,file])
+      let report=await captureLogs(()=>doctor());assert.equal(report.result,true);assert.ok(!report.logs.some(l=>l.includes('#! line')))
+      await captureLogs(()=>add(file,{schedule:'@daily',runtime:'sh'}))
+      ;[job]=readLaunchdJobs();assert.deepEqual(launchdConfig(job).ProgramArguments,['/bin/sh',file])
+      report=await captureLogs(()=>doctor());assert.equal(report.result,true)
+      assert.ok(report.logs.includes(`  ${job.id}: runs with /bin/sh although the #! line of the script names ${shell}. Run cronly add again to use it.`))
+    })
+  })
   await testAsync('launchd: 동시 등록이 각 작업을 보존하고 print 오류를 등록 성공으로 취급하지 않음',async()=>{
     await withLaunchdSandbox(async ctx=>{
       const a=ctx.script('a.mjs'),b=ctx.script('b.mjs');process.env.LAUNCHD_TEST_DELAY='100'

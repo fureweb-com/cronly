@@ -138,6 +138,8 @@ cronly add ./custom-binary --daily 08:00 --runtime exec
 
 `--runtime` also accepts another interpreter by name or path (for example `--runtime python3`). It is resolved to an absolute path when you run `add`, so cron can find it. Options can be written as `--daily 08:00` or `--daily=08:00`.
 
+Without `--runtime`, `.js`, `.mjs`, and `.cjs` files run with Node.js, and a `.sh` file runs with the interpreter named on its `#!` line (for example `#!/bin/bash` or `#!/usr/bin/env bash`), or with `/bin/sh` when it has none. Options on the `#!` line such as `-e` are not applied; to run a script exactly as written, make it executable and use `--runtime exec`. `--runtime sh` always uses `/bin/sh`.
+
 Re-adding the same file **updates instead of duplicating**:
 
 ```bash
@@ -228,7 +230,7 @@ cron starts jobs with a minimal environment, so a script that works in your term
 - **Logs**: stdout and stderr are appended to `~/.cronly/logs/<id>.log`. Set `CRONLY_HOME` to use a different base directory. Logs are not rotated.
 - **Node.js version**: jobs run with the exact Node.js binary that registered them (for example an nvm version directory). If you remove that version, `cronly doctor` reports it; run `cronly add` again to switch to the current one.
 
-Entries registered by an older version of Cronly keep their old command line until you run `cronly add` for them again.
+Entries registered by an older version of Cronly keep their old command line until you run `cronly add` for them again. In particular, a `.sh` entry from 1.0.1 or earlier still runs with `/bin/sh`; `cronly doctor` points out the ones whose script names another interpreter.
 
 ## How duplicate prevention works
 
