@@ -96,7 +96,7 @@ npm link
 
 ## macOS 和 Linux 调度器
 
-macOS 默认使用用户级 `launchd` LaunchAgent，Linux 使用 cron。命令和计划选项保持一致。macOS 为每个任务创建 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`，直接传递执行参数，不经过 shell。注册失败时恢复先前配置。
+macOS 默认使用用户级 `launchd` LaunchAgent，Linux 使用 cron。命令和计划选项保持一致。macOS 为每个任务创建 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`，直接传递执行参数，不经过 shell。注册失败时恢复先前配置。Cronly 只管理与其写入内容完全一致的 plist：手动修改过的文件会被跳过，并在 `list`、`print`、`doctor` 中提示，不影响其他任务。请用 `cronly add` 重新注册对应脚本，或用 `cronly remove --id <id>` 删除。
 
 LaunchAgent 需要 GUI 登录会话，并在该用户登录期间运行。macOS 的 `--reboot`/`@reboot` 在注册、重新注册及登录时执行；cron 保留开机执行语义。睡眠期间错过的日历任务可能在唤醒时合并执行一次。受保护文件仍受 macOS 权限限制。
 

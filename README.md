@@ -96,7 +96,7 @@ After installing globally, run the CLI as `cronly`.
 
 ## macOS and Linux schedulers
 
-macOS uses a per-user `launchd` LaunchAgent by default; Linux uses cron. Commands and schedule flags stay the same. macOS stores each job in `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` and passes executable arguments directly, without a shell. Registration failures restore the previous configuration.
+macOS uses a per-user `launchd` LaunchAgent by default; Linux uses cron. Commands and schedule flags stay the same. macOS stores each job in `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` and passes executable arguments directly, without a shell. Registration failures restore the previous configuration. Cronly manages a plist only while it is exactly what Cronly wrote: a file edited by hand is skipped and reported by `list`, `print`, and `doctor`, without affecting other jobs. Run `cronly add` for its script again, or remove it with `cronly remove --id <id>`.
 
 LaunchAgents require a GUI login session and run while that user is logged in. `--reboot`/`@reboot` runs on registration, re-registration, and login on macOS; cron retains its boot semantics. Calendar jobs missed during sleep can run once on wake. Protected files remain subject to macOS permissions.
 

@@ -96,7 +96,7 @@ npm link
 
 ## macOS と Linux のスケジューラー
 
-macOS はユーザー単位の `launchd` LaunchAgent、Linux は cron を既定で使用します。コマンドとスケジュールフラグは共通です。macOS はジョブごとに `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` を作成し、シェルを介さず引数を渡します。登録に失敗すると以前の設定を復元します。
+macOS はユーザー単位の `launchd` LaunchAgent、Linux は cron を既定で使用します。コマンドとスケジュールフラグは共通です。macOS はジョブごとに `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` を作成し、シェルを介さず引数を渡します。登録に失敗すると以前の設定を復元します。Cronly は、自身が書き出した内容と完全に一致する plist だけを管理します。手動で編集したファイルはスキップされ、`list`・`print`・`doctor` で報告されますが、他のジョブには影響しません。該当スクリプトを `cronly add` で再登録するか、`cronly remove --id <id>` で削除してください。
 
 LaunchAgent は GUI ログインセッションが必要で、そのユーザーのログイン中に動作します。macOS の `--reboot`/`@reboot` は登録・再登録・ログイン時に実行します。cron は起動時実行の意味を維持します。スリープ中のカレンダー予定は復帰時に1回実行される場合があります。保護されたファイルには macOS のアクセス権が適用されます。
 

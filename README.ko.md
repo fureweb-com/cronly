@@ -96,7 +96,7 @@ npm link
 
 ## macOS와 Linux 스케줄러
 
-macOS는 기본으로 사용자별 `launchd` LaunchAgent를, Linux는 cron을 사용해요. 명령과 일정 플래그는 같아요. macOS는 작업마다 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`를 만들고 셸을 거치지 않고 실행 인자를 전달해요. 등록에 실패하면 이전 설정을 복원해요.
+macOS는 기본으로 사용자별 `launchd` LaunchAgent를, Linux는 cron을 사용해요. 명령과 일정 플래그는 같아요. macOS는 작업마다 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`를 만들고 셸을 거치지 않고 실행 인자를 전달해요. 등록에 실패하면 이전 설정을 복원해요. Cronly는 자신이 기록한 내용과 정확히 같은 plist만 관리해요. 직접 수정한 파일은 건너뛰고 `list`, `print`, `doctor`에서 알려 주며, 다른 작업에는 영향을 주지 않아요. 해당 스크립트를 `cronly add`로 다시 등록하거나 `cronly remove --id <id>`로 삭제해 주세요.
 
 LaunchAgent는 GUI 로그인 세션이 필요하며 해당 사용자가 로그인한 동안 실행돼요. macOS의 `--reboot`/`@reboot`는 등록·재등록·로그인 시 실행돼요. cron에서는 기존 부팅 시 실행 의미를 유지해요. 잠든 동안 놓친 달력 일정은 깨어날 때 한 번 실행될 수 있어요. 보호된 파일 접근에는 macOS 권한이 적용돼요.
 
