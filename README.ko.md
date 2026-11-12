@@ -301,7 +301,7 @@ npm run test:integration
 ## 제약 사항
 
 - macOS 사용자별 LaunchAgent와 Linux user crontab을 사용해요
-- 같은 사용자의 Cronly `add`/`remove`는 순서대로 처리해요. `crontab -e`나 다른 도구의 동시 편집은 이 잠금으로 보호하지 못해요. 잠금을 잡은 명령이 강제 종료된 뒤 그 프로세스 ID를 다른 프로세스가 다시 쓰면, 다음 명령이 `/tmp` 아래 잠금 디렉터리와 프로세스 ID를 알려 줘요. 실행 중인 Cronly 명령이 없을 때 그 디렉터리를 지워 주세요.
+- 같은 사용자의 Cronly `add`/`remove`는 순서대로 처리해요. `crontab -e`나 다른 도구의 동시 편집은 이 잠금으로 보호하지 못해요. 잠금을 잡은 명령이 강제 종료된 뒤 그 프로세스 ID를 다른 프로세스가 다시 쓰면, 다음 명령이 `/tmp` 아래 잠금 디렉터리와 프로세스 ID를 알려 줘요. 그 프로세스가 `cronly`도 `crontab`도 아니라면 그 디렉터리를 지워 주세요.
 - systemd timer, `/etc/cron.d`는 지원하지 않아요
 - 분산 환경은 지원하지 않아요 (단일 머신 전제예요)
 - overlap execution 방지는 포함하지 않아요

@@ -1651,7 +1651,8 @@ test('i18n catalogs: 함수형 메시지가 모든 locale에서 렌더링돼요'
     const withPids = busy({ path: '/tmp/x.lock', pids: '12, 34' })
     const withoutPids = busy({ path: '/tmp/x.lock', pids: '' })
     assert.ok(withPids.includes('12, 34') && withPids.includes('/tmp/x.lock'), `${locale}:lock_busy with pids`)
-    assert.ok(withoutPids.includes('/tmp/x.lock') && withoutPids.length < withPids.length, `${locale}:lock_busy without pids`)
+    // 잡고 있는 프로세스를 모르면(방금 생긴 잠금) 지우라고 안내하지 않는다
+    assert.ok(!withoutPids.includes('/tmp/x.lock') && withPids.startsWith(withoutPids.slice(0, 10)), `${locale}:lock_busy without pids`)
   }
 })
 
@@ -3064,7 +3065,9 @@ await testAsync('crontab 잠금: 종료된 소유자와 오래된 빈 잠금만 
     writeFileSync(join(lockPath, `owner-${dead.pid}-abcd`), '')
     assert.equal(await withCrontabLock(async () => 'recovered', { lockPath, pollMs: 1 }), 'recovered')
     mkdirSync(lockPath)
-    await assert.rejects(() => withCrontabLock(async () => assert.fail('fresh lock acquired'), { lockPath, timeoutMs: 0 }), /Another Cronly/)
+    await assert.rejects(() => withCrontabLock(async () => assert.fail('fresh lock acquired'), { lockPath, timeoutMs: 0 }), {
+      message: 'Another Cronly command is updating scheduled jobs. Try again shortly.',
+    })
     const old = new Date(Date.now() - 60000)
     utimesSync(lockPath, old, old)
     assert.equal(await withCrontabLock(async () => 'empty recovered', { lockPath, pollMs: 1 }), 'empty recovered')
@@ -3081,7 +3084,7 @@ await testAsync('crontab 잠금: 살아 있는 소유자의 잠금을 시간 초
     // 메시지만 보고 누가 잡고 있는지, 멈춘 잠금이면 무엇을 지우면 되는지 알 수 있어야 한다
     await assert.rejects(() => withCrontabLock(async () => assert.fail('live lock acquired'), { lockPath, timeoutMs: 0 }), {
       message: `Another Cronly command is updating scheduled jobs (process ${process.pid}). Try again shortly. `
-        + `If no Cronly command is running, delete ${lockPath} and try again.`,
+        + `If that process is neither cronly nor crontab, the lock is stale: delete ${lockPath} and try again.`,
     })
     assert.equal(existsSync(owner), true)
     const dead = spawnSync(process.execPath, ['-e', ''])
