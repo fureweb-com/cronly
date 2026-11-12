@@ -131,7 +131,7 @@ async function withPatchedVersion(version, fn) {
 }
 
 async function withMockCrontabEnv(
-  { initialContent = '', noCrontab = false, readFail = '', writeFail = '', writeRefuse = '', writeDelay = '', whichFail = false } = {},
+  { initialContent = '', noCrontab = false, readFail = '', writeFail = '', writeRefuse = '', writeIgnore = false, writeDelay = '', whichFail = false } = {},
   fn
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'cronly-unit-'))
@@ -168,6 +168,10 @@ if [ "$1" = "-" ]; then
     # Refuse without reading the input, like crontab for a user in cron.deny.
     echo "$MOCK_WRITE_REFUSE" >&2
     exit 1
+  fi
+  if [ "$MOCK_WRITE_IGNORE" = "1" ]; then
+    # Report success without having read the input.
+    exit 0
   fi
   if [ -n "$MOCK_WRITE_DELAY" ]; then
     sleep "$MOCK_WRITE_DELAY"
@@ -213,6 +217,7 @@ exit 1
     'MOCK_READ_FAIL',
     'MOCK_WRITE_FAIL',
     'MOCK_WRITE_REFUSE',
+    'MOCK_WRITE_IGNORE',
     'MOCK_WRITE_DELAY',
     'MOCK_WRITE_STARTED',
     'MOCK_WHICH_FAIL',
@@ -238,6 +243,8 @@ exit 1
   else delete process.env.MOCK_WRITE_FAIL
   if (writeRefuse) process.env.MOCK_WRITE_REFUSE = writeRefuse
   else delete process.env.MOCK_WRITE_REFUSE
+  if (writeIgnore) process.env.MOCK_WRITE_IGNORE = '1'
+  else delete process.env.MOCK_WRITE_IGNORE
   if (writeDelay) process.env.MOCK_WRITE_DELAY = writeDelay
   else delete process.env.MOCK_WRITE_DELAY
   if (whichFail) process.env.MOCK_WHICH_FAIL = '1'
@@ -1780,6 +1787,14 @@ await testAsync('writeCrontab: crontab이 입력을 읽지 않고 거부해도 E
     const large = `${'# filler line\n'.repeat(600000)}0 * * * * /job\n`
     await assert.rejects(() => writeCrontab(large), { message: `crontab - failed: ${refusal}` })
     await assert.rejects(() => writeCrontab('0 * * * * /other\n'), { message: `crontab - failed: ${refusal}` })
+    assert.equal(ctx.readState(), '0 * * * * /job\n')
+  })
+})
+
+await testAsync('writeCrontab: 입력이 끝까지 전달되지 않았으면 crontab이 성공으로 끝나도 실패로 보고', async () => {
+  await withMockCrontabEnv({ initialContent: '0 * * * * /job\n', writeIgnore: true }, async (ctx) => {
+    const large = `${'# filler line\n'.repeat(600000)}0 * * * * /job\n`
+    await assert.rejects(() => writeCrontab(large), /^Error: crontab - failed: write E(PIPE|CONNRESET)$/)
     assert.equal(ctx.readState(), '0 * * * * /job\n')
   })
 })
