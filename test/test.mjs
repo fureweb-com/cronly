@@ -32,7 +32,7 @@ import {
   removeBlockFromCrontab,
   resolveRuntimePath,
 } from '../lib/commands.mjs'
-import { findIgnoredShebang, readShebangRuntime, resolveJobRuntime } from '../lib/job.mjs'
+import { findExecutable, findIgnoredShebang, getProcDir, isCronDaemonRunning, readShebangRuntime, resolveJobRuntime } from '../lib/job.mjs'
 import { parseArgv } from '../lib/cli.mjs'
 import { decodeCrontab, encodeCrontab, readCrontab, writeCrontab } from '../lib/crontab.mjs'
 import { normalizeLocale, detectLocale, setLocale, getLocale, t, getUsage } from '../lib/i18n.mjs'
@@ -60,6 +60,17 @@ const TEST_CRONLY_HOME = mkdtempSync(join(tmpdir(), 'cronly-home-'))
 process.env.CRONLY_HOME = TEST_CRONLY_HOME
 process.env.CRONLY_BACKEND = 'cron'
 process.env.CRONLY_LAUNCHD_DIR = join(TEST_CRONLY_HOME, 'agents')
+
+// doctor looks for a cron daemon in the process list. Give it a fixed list so
+// the result does not depend on the machine that runs the tests.
+function writeProcessList(dir, commands) {
+  commands.forEach((command, i) => {
+    mkdirSync(join(dir, String(i + 1)), { recursive: true })
+    writeFileSync(join(dir, String(i + 1), 'cmdline'), `${command.join('\0')}\0`)
+  })
+  return dir
+}
+process.env.CRONLY_PROC_DIR = writeProcessList(join(TEST_CRONLY_HOME, 'proc'), [['/sbin/init'], ['/usr/sbin/cron', '-f']])
 
 function test(name, fn) {
   try {
@@ -202,6 +213,7 @@ exit 1
     'MOCK_BIN_DIR',
     'CRONLY_LANG',
     'CRONLY_HOME',
+    'CRONLY_PROC_DIR',
   ]
   const previousEnv = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
 
@@ -2251,6 +2263,7 @@ await testAsync('doctor: 정상 환경 점검', async () => {
     const { logs, result } = await captureLogs(() => doctor())
     assert.ok(logs.some((line) => line.includes('Node.js')))
     assert.ok(logs.some((line) => line.includes('crontab command: found')))
+    assert.ok(logs.includes('  cron daemon: running'))
     assert.ok(logs.some((line) => line.includes('Managed entries: 1')))
     assert.equal(logs.at(-1), 'All checks passed.')
     assert.equal(result, true)
@@ -2259,7 +2272,8 @@ await testAsync('doctor: 정상 환경 점검', async () => {
 
 await testAsync('doctor: 문제 환경도 보고', async () => {
   await withPatchedVersion('v14.7.0', async () => {
-    await withMockCrontabEnv({ whichFail: true, readFail: 'mock read denied' }, async () => {
+    await withMockCrontabEnv({}, async (ctx) => {
+      process.env.PATH = join(ctx.dir, 'no-such-bin')
       const { logs, result } = await captureLogs(() => doctor())
       assert.ok(logs.some((line) => line.includes('Node.js 14.8.0 or higher')))
       assert.ok(logs.some((line) => line.includes('crontab command: not found')))
@@ -2267,6 +2281,70 @@ await testAsync('doctor: 문제 환경도 보고', async () => {
       assert.equal(logs.at(-1), 'Some checks failed.')
       assert.equal(result, false)
     })
+  })
+})
+
+await testAsync('doctor: which 명령이 없거나 실패해도 crontab을 PATH에서 직접 찾음', async () => {
+  // 최소 이미지에는 which가 없다. 예전에는 "not found"와 "read: ok"가 함께 나오고 실패로 끝났다
+  await withMockCrontabEnv({ whichFail: true }, async (ctx) => {
+    assert.equal(findExecutable('crontab'), join(ctx.dir, 'crontab'))
+    assert.equal(findExecutable('definitely-missing-command'), null)
+    assert.equal(findExecutable('crontab', {}), null)
+    const { logs, result } = await captureLogs(() => doctor())
+    assert.ok(logs.includes('  crontab command: found'))
+    assert.ok(logs.includes('  crontab read: ok'))
+    assert.equal(logs.at(-1), 'All checks passed.')
+    assert.equal(result, true)
+  })
+})
+
+await testAsync('isCronDaemonRunning: 프로세스 목록에서 cron 데몬을 찾고, 알 수 없으면 null', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    assert.equal(getProcDir({}), '/proc')
+    assert.equal(getProcDir({ CRONLY_PROC_DIR: '/custom/proc' }), '/custom/proc')
+    let n = 0
+    const list = (commands) => writeProcessList(join(ctx.dir, `proc-${n++}`), commands)
+    const none = []
+
+    for (const daemon of [['/usr/sbin/cron', '-f'], ['/usr/sbin/crond', '-n'], ['crond', '-f', '-d', '8'], ['busybox', 'crond', '-f'], ['/usr/sbin/fcron']]) {
+      assert.equal(isCronDaemonRunning(list([['/sbin/init'], ['node', 'server.js'], daemon]), none), true, daemon.join(' '))
+    }
+    for (const other of [['node', 'server.js'], ['busybox'], ['busybox', 'sh'], ['/usr/bin/crontab', '-l'], ['']]) {
+      assert.equal(isCronDaemonRunning(list([['/sbin/init'], other]), none), false, other.join(' '))
+    }
+    // /proc가 아닌 항목과, 목록을 읽는 사이 끝난 프로세스는 건너뛴다
+    const racing = list([['/sbin/init']])
+    mkdirSync(join(racing, 'self'))
+    mkdirSync(join(racing, '4242'))
+    assert.equal(isCronDaemonRunning(racing, none), false)
+
+    // /proc가 없거나(macOS) 다른 사용자의 프로세스가 가려져 PID 1을 읽을 수 없으면 판단하지 않는다
+    assert.equal(isCronDaemonRunning(join(ctx.dir, 'missing-proc'), none), null)
+    const hidden = join(ctx.dir, 'proc-hidden')
+    mkdirSync(join(hidden, '77'), { recursive: true })
+    writeFileSync(join(hidden, '77', 'cmdline'), 'node\0')
+    assert.equal(isCronDaemonRunning(hidden, none), null)
+
+    // systemd-cron은 데몬 없이 타이머로 crontab을 실행한다
+    const generator = ctx.createScript('systemd-crontab-generator', '')
+    assert.equal(isCronDaemonRunning(list([['/sbin/init']]), [join(ctx.dir, 'absent'), generator]), true)
+  })
+})
+
+await testAsync('doctor: cron 데몬이 실행 중이 아니면 실패로 보고하고, 알 수 없으면 점검을 건너뜀', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    process.env.CRONLY_PROC_DIR = writeProcessList(join(ctx.dir, 'proc-no-cron'), [['/sbin/init'], ['node', 'server.js']])
+    let report = await captureLogs(() => doctor())
+    assert.ok(report.logs.includes('  ⚠ cron daemon: not running. Jobs will not start until cron (or crond) is running.'))
+    assert.equal(report.logs.at(-1), 'Some checks failed.')
+    assert.equal(report.result, false)
+    assert.equal(ctx.cli(['doctor']).status, 1)
+
+    process.env.CRONLY_PROC_DIR = join(ctx.dir, 'missing-proc')
+    report = await captureLogs(() => doctor())
+    assert.ok(!report.logs.some((line) => line.includes('cron daemon')))
+    assert.equal(report.logs.at(-1), 'All checks passed.')
+    assert.equal(report.result, true)
   })
 })
 

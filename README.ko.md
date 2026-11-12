@@ -215,7 +215,7 @@ cronly print
 cronly doctor
 ```
 
-Node.js, 스크립트·런타임 권한, 로그 쓰기 권한, 중복 등록을 점검해요. macOS에서는 로그인 세션·LaunchAgent 로드 여부·마지막 종료 상태를, cron에서는 crontab 접근을 확인해요. 이전 cron 작업도 이전할 수 있도록 안내해요. 문제가 있으면 종료 코드 1로 끝나요.
+Node.js, 스크립트·런타임 권한, 로그 쓰기 권한, 중복 등록을 점검해요. macOS에서는 로그인 세션·LaunchAgent 로드 여부·마지막 종료 상태를, cron에서는 crontab 접근을 확인해요. Linux에서는 cron 데몬(`cron`, `crond`, `fcron`)이 실행 중인지도 확인해요. 데몬이 없으면 crontab의 작업이 하나도 실행되지 않기 때문이에요. `/proc`에서 다른 사용자의 프로세스가 가려진 경우처럼 프로세스 목록으로 판단할 수 없으면 이 점검은 건너뛰고, `CRONLY_PROC_DIR`을 없는 디렉터리로 지정하면 직접 건너뛸 수 있어요. 이전 cron 작업도 이전할 수 있도록 안내해요. 문제가 있으면 종료 코드 1로 끝나요.
 
 ### macOS 권한 창 (`CRONLY_BACKEND=cron`)
 

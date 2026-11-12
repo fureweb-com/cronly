@@ -215,7 +215,7 @@ cronly print
 cronly doctor
 ```
 
-检查 Node.js、脚本及运行时权限、日志写入权限和重复注册。macOS 还检查登录会话、LaunchAgent 加载状态及上次退出状态；cron 检查 crontab 访问。旧 cron 任务会显示迁移提示。任何检查失败均以退出码 1 结束。
+检查 Node.js、脚本及运行时权限、日志写入权限和重复注册。macOS 还检查登录会话、LaunchAgent 加载状态及上次退出状态；cron 检查 crontab 访问；在 Linux 上还会检查 cron 守护进程（`cron`、`crond` 或 `fcron`）是否在运行，因为没有它 crontab 中的任务都不会执行。如果无法从进程列表判断（例如 `/proc` 隐藏了其他用户的进程），则跳过该检查；也可以把 `CRONLY_PROC_DIR` 设为不存在的目录来自行跳过。旧 cron 任务会显示迁移提示。任何检查失败均以退出码 1 结束。
 
 ### macOS 权限对话框 (`CRONLY_BACKEND=cron`)
 

@@ -215,7 +215,7 @@ Outputs the LaunchAgent plist or cron block for managed jobs.
 cronly doctor
 ```
 
-Checks Node.js, script/runtime permissions, writable logs, and duplicate registrations. On macOS it also checks the login session, loaded LaunchAgents, and the last exit status; cron checks crontab access instead. Legacy cron jobs are reported for explicit migration. Any failed check exits with code 1.
+Checks Node.js, script/runtime permissions, writable logs, and duplicate registrations. On macOS it also checks the login session, loaded LaunchAgents, and the last exit status; cron checks crontab access instead and, on Linux, that a cron daemon (`cron`, `crond`, or `fcron`) is running, since nothing in a crontab runs without one. The daemon check is skipped when the process list cannot tell, for example when `/proc` hides other users' processes; set `CRONLY_PROC_DIR` to a missing directory to skip it yourself. Legacy cron jobs are reported for explicit migration. Any failed check exits with code 1.
 
 ### macOS permission dialog (`CRONLY_BACKEND=cron`)
 
