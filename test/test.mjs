@@ -33,7 +33,7 @@ import {
   resolveRuntimePath,
 } from '../lib/commands.mjs'
 import { parseArgv } from '../lib/cli.mjs'
-import { readCrontab, writeCrontab } from '../lib/crontab.mjs'
+import { decodeCrontab, encodeCrontab, readCrontab, writeCrontab } from '../lib/crontab.mjs'
 import { normalizeLocale, detectLocale, setLocale, getLocale, t, getUsage } from '../lib/i18n.mjs'
 import enCatalog from '../lib/i18n/en.mjs'
 import koCatalog from '../lib/i18n/ko.mjs'
@@ -1691,6 +1691,71 @@ await testAsync('writeCrontab: 자식 추적에 실패하면 입력을 닫지 �
   })
 })
 
+test('decodeCrontab/encodeCrontab: 올바른 UTF-8은 그대로 읽고 씀', () => {
+  for (const text of ['', '0 * * * * /job\n', '# 백업 작업 ✓ \u{1f600} \u{10080} �\n']) {
+    const bytes = Buffer.from(text, 'utf8')
+    assert.equal(decodeCrontab(bytes), text)
+    assert.ok(encodeCrontab(text).equals(bytes))
+  }
+})
+
+test('decodeCrontab/encodeCrontab: UTF-8이 아닌 바이트를 U+FFFD로 바꾸지 않고 그대로 되돌림', () => {
+  // 오래된 서버의 crontab에 남아 있는 EUC-KR 주석 "# 백업"
+  const eucKr = Buffer.from([0x23, 0x20, 0xb9, 0xe9, 0xbe, 0xf7, 0x0a])
+  const text = decodeCrontab(eucKr)
+  assert.equal(text.length, eucKr.length)
+  assert.ok(text.startsWith('# ') && text.endsWith('\n'))
+  assert.ok(!text.includes('�'))
+  assert.ok(encodeCrontab(text).equals(eucKr))
+
+  // 길이별 올바른 문자(각 범위의 경계 포함) 사이에 잘못된 바이트열을 끼워 넣는다
+  const valid = '# é ࠀ ퟿  한글 \u{10000} \u{40000} \u{1f600} \u{10080} \u{10ffff}'
+  const malformed = [
+    [0x80], [0xbf], [0xc0, 0xaf], [0xc1, 0xbf], [0xc2], [0xc2, 0x41],
+    [0xe0, 0x80, 0x80], [0xe0, 0x9f, 0xbf], [0xed, 0xa0, 0x80], [0xed, 0xbf, 0xbf], [0xe3], [0xe3, 0x81], [0xe3, 0x81, 0x41],
+    [0xf0, 0x80, 0x80, 0x80], [0xf0, 0x8f, 0xbf, 0xbf], [0xf4, 0x90, 0x80, 0x80],
+    [0xf0, 0x9f, 0x98], [0xf0, 0x9f, 0x98, 0x41], [0xf0, 0x9f, 0x41, 0x80],
+    [0xf5, 0x80, 0x80, 0x80], [0xfe], [0xff],
+  ]
+  for (const bytes of malformed) {
+    const alone = Buffer.from(bytes)
+    assert.ok(encodeCrontab(decodeCrontab(alone)).equals(alone), `bytes ${alone.toString('hex')}`)
+
+    const mixed = Buffer.concat([Buffer.from(`${valid} `), alone, Buffer.from(` ${valid}\n`)])
+    const decoded = decodeCrontab(mixed)
+    assert.ok(decoded.startsWith(`${valid} `) && decoded.endsWith(` ${valid}\n`), `text around ${alone.toString('hex')}`)
+    assert.ok(!decoded.includes('�'))
+    assert.ok(encodeCrontab(decoded).equals(mixed), `bytes around ${alone.toString('hex')}`)
+  }
+})
+
+await testAsync('add/remove: UTF-8이 아닌 기존 crontab 내용을 바이트 그대로 보존', async () => {
+  // EUC-KR 주석과 Latin-1 경로. 문자열로 읽고 쓰면 U+FFFD로 바뀌어 무관한 작업의 경로가 깨진다
+  const original = Buffer.concat([
+    Buffer.from('# '), Buffer.from([0xb9, 0xe9, 0xbe, 0xf7]),
+    Buffer.from('\n0 3 * * * /srv/caf'), Buffer.from([0xe9]), Buffer.from('/backup.sh\n'),
+  ])
+  await withMockCrontabEnv({}, async (ctx) => {
+    writeFileSync(ctx.stateFile, original)
+    const file = ctx.createScript('작업.mjs', '')
+
+    await captureLogs(() => add(file, { schedule: '0 8 * * *' }))
+    const added = readFileSync(ctx.stateFile)
+    assert.ok(added.subarray(0, original.length).equals(original))
+    const blocks = parseBlocks(added.subarray(original.length).toString('utf8'))
+    assert.deepEqual(blocks.map((b) => [b.path, b.schedule]), [[file, '0 8 * * *']])
+
+    await captureLogs(() => add(file, { schedule: '0 9 * * *' }))
+    assert.ok(readFileSync(ctx.stateFile).subarray(0, original.length).equals(original))
+    assert.equal((await captureLogs(() => list())).logs.length, 1)
+
+    await captureLogs(() => remove(file, {}))
+    const removed = readFileSync(ctx.stateFile)
+    assert.ok(removed.subarray(0, original.length).equals(original))
+    assert.equal(removed.subarray(original.length).toString('utf8').trim(), '')
+  })
+})
+
 await testAsync('add: 파일 경로 누락 거부', async () => {
   await assert.rejects(() => add(undefined, { schedule: '0 8 * * *' }), /file path/)
 })
@@ -2502,11 +2567,14 @@ test('통합 테스트 안전성: 최초 조회 실패 시 기존 crontab을 보
 })
 
 test('통합 테스트 안전성: 기존 crontab·빈 crontab·미등록 상태를 각각 정확히 복원', () => {
-  for (const original of ['# original\n0 0 * * * /bin/true\n', '', null]) {
+  // 마지막은 UTF-8이 아닌 crontab(EUC-KR 주석)으로, 바이트 그대로 되돌려야 한다
+  const legacy = Buffer.concat([Buffer.from('# '), Buffer.from([0xb9, 0xe9, 0xbe, 0xf7]), Buffer.from('\n0 0 * * * /bin/true\n')])
+  for (const original of ['# original\n0 0 * * * /bin/true\n', '', null, legacy]) {
     const result = runSandboxedIntegration({ original })
     assert.equal(result.status, 0, result.stderr + result.stdout)
     assert.match(result.stdout, /33개 통과, 0개 실패/)
-    assert.equal(result.state, original)
+    if (original === null) assert.equal(result.stateBytes, null)
+    else assert.ok(result.stateBytes.equals(Buffer.from(original)), `restored ${result.stateBytes.toString('hex')}`)
     assert.equal(result.mutations.includes('remove'), original === null)
   }
 })

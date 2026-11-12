@@ -41,7 +41,8 @@ else exit 1; fi
         SAFETY_READ_FAIL: readFail ? '1' : '', SAFETY_RESTORE_FAIL: restoreFail ? '1' : '' },
       encoding: 'utf8', timeout: 30000,
     })
-    return { ...result, state: existsSync(state) ? readFileSync(state, 'utf8') : null,
+    const stateBytes = existsSync(state) ? readFileSync(state) : null
+    return { ...result, state: stateBytes && stateBytes.toString('utf8'), stateBytes,
       mutations: existsSync(mutations) ? readFileSync(mutations, 'utf8') : '' }
   } finally {
     rmSync(dir, { recursive: true, force: true })

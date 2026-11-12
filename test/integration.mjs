@@ -96,7 +96,7 @@ try {
   // macOS는 crontab을 바꿀 때 권한 확인 창을 띄우고, 응답할 때까지 crontab 명령이 멈춥니다.
   // 같은 내용을 먼저 한 번 써서 테스트 시작 전에 권한 창을 처리합니다.
   console.log('crontab 쓰기 권한 확인 중 (macOS 권한 창이 뜨면 허용해 주세요)...')
-  const preflight = spawnSync('crontab', ['-'], { input: backup, encoding: 'utf8', timeout: 10 * 60 * 1000 })
+  const preflight = spawnSync('crontab', ['-'], { input: snapshot.bytes, encoding: 'utf8', timeout: 10 * 60 * 1000 })
   if (preflight.status !== 0) {
     const reason = (preflight.stderr || '').trim() || (preflight.error && preflight.error.message) || `exit ${preflight.status}`
     throw new Error(`crontab에 쓸 수 없어 통합 테스트를 중단합니다: ${reason}`)
