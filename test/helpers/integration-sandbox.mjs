@@ -10,8 +10,6 @@ export function runSandboxedIntegration({ original = '# manual\n0 0 * * * /bin/t
   mkdirSync(bin)
   const state = join(dir, 'state')
   const mutations = join(dir, 'mutations')
-  const backup = join(dir, 'backup')
-  writeFileSync(backup, original || '')
   if (original !== null) writeFileSync(state, original)
   writeFileSync(join(bin, 'crontab'), `#!/bin/sh
 if [ "$1" = "-l" ]; then
@@ -23,7 +21,7 @@ if [ "$1" = "-l" ]; then
   if [ -f "$SAFETY_DIR/state" ]; then cat "$SAFETY_DIR/state"; else echo "no crontab for test" >&2; exit 1; fi
 elif [ "$1" = "-" ]; then
   cat > "$SAFETY_DIR/input"
-  if [ "$SAFETY_RESTORE_FAIL" = "1" ] && [ -f "$SAFETY_DIR/mutations" ] && cmp -s "$SAFETY_DIR/input" "$SAFETY_DIR/backup"; then
+  if [ "$SAFETY_RESTORE_FAIL" = "1" ] && [ "$CRONLY_TEST_RESTORE" = "1" ]; then
     echo "restore denied" >&2
     exit 1
   fi
@@ -41,7 +39,8 @@ else exit 1; fi
         SAFETY_READ_FAIL: readFail ? '1' : '', SAFETY_RESTORE_FAIL: restoreFail ? '1' : '' },
       encoding: 'utf8', timeout: 30000,
     })
-    return { ...result, state: existsSync(state) ? readFileSync(state, 'utf8') : null,
+    const stateBytes = existsSync(state) ? readFileSync(state) : null
+    return { ...result, state: stateBytes && stateBytes.toString('utf8'), stateBytes,
       mutations: existsSync(mutations) ? readFileSync(mutations, 'utf8') : '' }
   } finally {
     rmSync(dir, { recursive: true, force: true })

@@ -96,7 +96,7 @@ npm link
 
 ## macOS と Linux のスケジューラー
 
-macOS はユーザー単位の `launchd` LaunchAgent、Linux は cron を既定で使用します。コマンドとスケジュールフラグは共通です。macOS はジョブごとに `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` を作成し、シェルを介さず引数を渡します。登録に失敗すると以前の設定を復元します。
+macOS はユーザー単位の `launchd` LaunchAgent、Linux は cron を既定で使用します。コマンドとスケジュールフラグは共通です。macOS はジョブごとに `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` を作成し、シェルを介さず引数を渡します。登録に失敗すると以前の設定を復元します。Cronly は、自身が書き出した内容と完全に一致する plist だけを管理します。手動で編集したファイルはスキップされ、`list`・`print`・`doctor` で報告されますが、他のジョブには影響しません。該当スクリプトを `cronly add` で再登録するか、`cronly remove --id <id>` で削除してください。
 
 LaunchAgent は GUI ログインセッションが必要で、そのユーザーのログイン中に動作します。macOS の `--reboot`/`@reboot` は登録・再登録・ログイン時に実行します。cron は起動時実行の意味を維持します。スリープ中のカレンダー予定は復帰時に1回実行される場合があります。保護されたファイルには macOS のアクセス権が適用されます。
 
@@ -137,6 +137,8 @@ cronly add ./custom-binary --daily 08:00 --runtime exec
 ```
 
 `--runtime` には他のインタプリタの名前やパスも指定できます（例: `--runtime python3`）。`add` 時に絶対パスに解決して記録するため、cron からも見つかります。オプションは `--daily 08:00` と `--daily=08:00` のどちらの形でも書けます。
+
+`--runtime` を省略すると、`.js`・`.mjs`・`.cjs` ファイルは Node.js で実行し、`.sh` ファイルは `#!` 行に従います。`#!/bin/bash` や `#!/usr/bin/env bash` はそのインタプリタで実行し、インタプリタは `add` 時に絶対パスに解決して記録します。`#!/bin/bash -e` や `#!/bin/busybox sh` のように引数のある行は、スクリプトに実行権限があればスクリプトを直接実行して書かれたとおりに適用し、実行権限がなければオプションは適用されません。`sh` 用のスクリプトと `#!` 行のないスクリプトは `/bin/sh` で実行し、`--runtime sh` は常に `/bin/sh` を使います。
 
 同じファイルを再度 `add` すると、**追加ではなく更新**として動作します：
 
@@ -213,7 +215,7 @@ cronly print
 cronly doctor
 ```
 
-Node.js、スクリプトとランタイムの権限、ログの書き込み権限、重複登録を点検します。macOS はログインセッション・LaunchAgent のロード状態・前回の終了状態、cron は crontab へのアクセスを確認します。以前の cron ジョブは移行案内を表示します。問題がある場合は終了コード 1 になります。
+Node.js、スクリプトとランタイムの権限、ログの書き込み権限、重複登録を点検します。macOS はログインセッション・LaunchAgent のロード状態・前回の終了状態、cron は crontab へのアクセスを確認します。Linux では cron デーモン（`cron`、`crond`、`fcron`）が実行中かどうかも確認します。デーモンがなければ crontab のジョブは一切実行されないためです。`/proc` で他ユーザーのプロセスが隠されている場合など、プロセス一覧から判断できないときはこの点検を省略します。`CRONLY_PROC_DIR` に存在しないディレクトリを指定すると、自分で省略することもできます。以前の cron ジョブは移行案内を表示します。問題がある場合は終了コード 1 になります。
 
 ### macOS の許可ダイアログ (`CRONLY_BACKEND=cron`)
 
@@ -225,10 +227,10 @@ cron は最小限の環境でジョブを起動するため、ターミナルで
 
 - **作業ディレクトリ**: スクリプトのあるディレクトリで実行します。`.env` や `./config.json` のような相対パスがそのまま使えます。
 - **PATH**: `cronly add` を実行した Node.js のディレクトリを先頭に置き、`/usr/bin:/bin` を続けます。シェルスクリプトから `node`、`npm`、`npx` を呼び出せます。それ以外のツールは絶対パスで呼ぶか、スクリプト内で `PATH` を設定してください。
-- **ログ**: stdout と stderr を `~/.cronly/logs/<id>.log` に追記します。`CRONLY_HOME` で基準ディレクトリを変更できます。ログのローテーションはしません。
+- **ログ**: stdout と stderr を `~/.cronly/logs/<id>.log` に追記します。`CRONLY_HOME` で基準ディレクトリを変更できます。ログのローテーションはしません。cron では、スクリプトのディレクトリに移動できなかったエラーもここに記録されます。
 - **Node.js バージョン**: ジョブは登録時の Node.js 実行ファイルでそのまま実行されます（例: nvm のバージョン別ディレクトリ）。そのバージョンを削除すると `cronly doctor` が知らせるので、`cronly add` を再実行して現在のバージョンに切り替えてください。
 
-以前のバージョンの Cronly で登録したエントリは、`cronly add` を再実行するまで以前のコマンド形式のままです。
+以前のバージョンの Cronly で登録したエントリは、`cronly add` を再実行するまで以前のコマンド形式のままです。特に、1.0.1 以前に登録した `.sh` エントリは引き続き `/bin/sh` で実行されます。スクリプトが別のインタプリタを指定しているものは `cronly doctor` が知らせます。
 
 ## 重複登録防止の仕組み
 
@@ -246,7 +248,7 @@ cron は `add` に渡したパスをそのまま実行するため、`current ->
 0 * * * * /usr/bin/some-other-job
 
 # [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
-0 2 * * * cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
+0 2 * * * { cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' ; } >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
 # [cronly:end] id=a1b2c3d4
 ```
 
@@ -299,7 +301,7 @@ npm run test:integration
 ## 制約事項
 
 - macOS のユーザー単位 LaunchAgent と Linux の user crontab に対応
-- 同じユーザーの Cronly `add`/`remove` は順番に処理します。`crontab -e` や他のツールによる同時編集は、このロックの対象外です。
+- 同じユーザーの Cronly `add`/`remove` は順番に処理します。`crontab -e` や他のツールによる同時編集は、このロックの対象外です。ロックを保持したままコマンドが強制終了され、そのプロセス ID を別のプロセスが再利用した場合、次のコマンドが `/tmp` 配下のロックディレクトリとプロセス ID を表示します。そのプロセスが `cronly` でも `crontab` でもなければ、そのディレクトリを削除してください。
 - systemd timer、`/etc/cron.d` 非対応
 - 分散環境非対応（単一マシン前提）
 - overlap execution 防止なし

@@ -96,7 +96,7 @@ npm link
 
 ## macOS 和 Linux 调度器
 
-macOS 默认使用用户级 `launchd` LaunchAgent，Linux 使用 cron。命令和计划选项保持一致。macOS 为每个任务创建 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`，直接传递执行参数，不经过 shell。注册失败时恢复先前配置。
+macOS 默认使用用户级 `launchd` LaunchAgent，Linux 使用 cron。命令和计划选项保持一致。macOS 为每个任务创建 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`，直接传递执行参数，不经过 shell。注册失败时恢复先前配置。Cronly 只管理与其写入内容完全一致的 plist：手动修改过的文件会被跳过，并在 `list`、`print`、`doctor` 中提示，不影响其他任务。请用 `cronly add` 重新注册对应脚本，或用 `cronly remove --id <id>` 删除。
 
 LaunchAgent 需要 GUI 登录会话，并在该用户登录期间运行。macOS 的 `--reboot`/`@reboot` 在注册、重新注册及登录时执行；cron 保留开机执行语义。睡眠期间错过的日历任务可能在唤醒时合并执行一次。受保护文件仍受 macOS 权限限制。
 
@@ -137,6 +137,8 @@ cronly add ./custom-binary --daily 08:00 --runtime exec
 ```
 
 `--runtime` 也可以指定其他解释器的名称或路径（例如 `--runtime python3`）。执行 `add` 时会解析为绝对路径并记录，因此 cron 也能找到它。选项可以写成 `--daily 08:00` 或 `--daily=08:00`。
+
+省略 `--runtime` 时，`.js`、`.mjs`、`.cjs` 文件用 Node.js 运行，`.sh` 文件则遵循其 `#!` 行。`#!/bin/bash` 或 `#!/usr/bin/env bash` 用该解释器运行，解释器会在执行 `add` 时解析为绝对路径并记录。`#!/bin/bash -e`、`#!/bin/busybox sh` 这类带参数的行，在脚本有执行权限时通过直接执行脚本来原样生效；没有执行权限时其中的选项不会生效。面向 `sh` 的脚本和没有 `#!` 行的脚本用 `/bin/sh` 运行，`--runtime sh` 始终使用 `/bin/sh`。
 
 对同一文件再次执行 `add` 时，**以更新而非新增方式运行**：
 
@@ -213,7 +215,7 @@ cronly print
 cronly doctor
 ```
 
-检查 Node.js、脚本及运行时权限、日志写入权限和重复注册。macOS 还检查登录会话、LaunchAgent 加载状态及上次退出状态；cron 检查 crontab 访问。旧 cron 任务会显示迁移提示。任何检查失败均以退出码 1 结束。
+检查 Node.js、脚本及运行时权限、日志写入权限和重复注册。macOS 还检查登录会话、LaunchAgent 加载状态及上次退出状态；cron 检查 crontab 访问；在 Linux 上还会检查 cron 守护进程（`cron`、`crond` 或 `fcron`）是否在运行，因为没有它 crontab 中的任务都不会执行。如果无法从进程列表判断（例如 `/proc` 隐藏了其他用户的进程），则跳过该检查；也可以把 `CRONLY_PROC_DIR` 设为不存在的目录来自行跳过。旧 cron 任务会显示迁移提示。任何检查失败均以退出码 1 结束。
 
 ### macOS 权限对话框 (`CRONLY_BACKEND=cron`)
 
@@ -225,10 +227,10 @@ cron 以最精简的环境启动任务，因此在终端中正常运行的脚本
 
 - **工作目录**：在脚本所在目录中运行，`.env`、`./config.json` 等相对路径可以正常解析。
 - **PATH**：把执行 `cronly add` 的 Node.js 所在目录放在最前面，后接 `/usr/bin:/bin`，因此 shell 脚本中可以调用 `node`、`npm`、`npx`。其他工具请使用绝对路径，或在脚本中设置 `PATH`。
-- **日志**：stdout 和 stderr 会追加到 `~/.cronly/logs/<id>.log`。可通过 `CRONLY_HOME` 更改基础目录。日志不会轮转。
+- **日志**：stdout 和 stderr 会追加到 `~/.cronly/logs/<id>.log`。可通过 `CRONLY_HOME` 更改基础目录。日志不会轮转。使用 cron 时，无法进入脚本目录的错误也会记录在这里。
 - **Node.js 版本**：任务使用注册时的 Node.js 可执行文件运行（例如 nvm 的版本目录）。删除该版本后，`cronly doctor` 会报告问题；请重新执行 `cronly add` 切换到当前版本。
 
-由旧版 Cronly 注册的条目，在重新执行 `cronly add` 之前会保留旧的命令格式。
+由旧版 Cronly 注册的条目，在重新执行 `cronly add` 之前会保留旧的命令格式。尤其是 1.0.1 及更早版本注册的 `.sh` 条目仍以 `/bin/sh` 运行；脚本指定了其他解释器的条目，`cronly doctor` 会给出提示。
 
 ## 防重复注册机制
 
@@ -246,7 +248,7 @@ cron 会按 `add` 时传入的路径运行，因此在 `current -> releases/v2` 
 0 * * * * /usr/bin/some-other-job
 
 # [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
-0 2 * * * cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
+0 2 * * * { cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' ; } >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
 # [cronly:end] id=a1b2c3d4
 ```
 
@@ -299,7 +301,7 @@ npm run test:integration
 ## 限制
 
 - 支持 macOS 用户级 LaunchAgent 和 Linux 用户 crontab
-- 同一用户的 Cronly `add`/`remove` 按顺序处理。通过 `crontab -e` 或其他工具进行的并发编辑不受此锁保护。
+- 同一用户的 Cronly `add`/`remove` 按顺序处理。通过 `crontab -e` 或其他工具进行的并发编辑不受此锁保护。如果命令在持有锁时被强制终止，且其进程 ID 之后被其他进程重用，下一条命令会提示 `/tmp` 下的锁目录和该进程 ID；如果该进程既不是 `cronly` 也不是 `crontab`，请删除该目录。
 - 不支持 systemd timer 和 `/etc/cron.d`
 - 不支持分布式环境（仅限单机）
 - 不包含 overlap execution 防止

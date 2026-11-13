@@ -96,7 +96,7 @@ npm link
 
 ## macOS와 Linux 스케줄러
 
-macOS는 기본으로 사용자별 `launchd` LaunchAgent를, Linux는 cron을 사용해요. 명령과 일정 플래그는 같아요. macOS는 작업마다 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`를 만들고 셸을 거치지 않고 실행 인자를 전달해요. 등록에 실패하면 이전 설정을 복원해요.
+macOS는 기본으로 사용자별 `launchd` LaunchAgent를, Linux는 cron을 사용해요. 명령과 일정 플래그는 같아요. macOS는 작업마다 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`를 만들고 셸을 거치지 않고 실행 인자를 전달해요. 등록에 실패하면 이전 설정을 복원해요. Cronly는 자신이 기록한 내용과 정확히 같은 plist만 관리해요. 직접 수정한 파일은 건너뛰고 `list`, `print`, `doctor`에서 알려 주며, 다른 작업에는 영향을 주지 않아요. 해당 스크립트를 `cronly add`로 다시 등록하거나 `cronly remove --id <id>`로 삭제해 주세요.
 
 LaunchAgent는 GUI 로그인 세션이 필요하며 해당 사용자가 로그인한 동안 실행돼요. macOS의 `--reboot`/`@reboot`는 등록·재등록·로그인 시 실행돼요. cron에서는 기존 부팅 시 실행 의미를 유지해요. 잠든 동안 놓친 달력 일정은 깨어날 때 한 번 실행될 수 있어요. 보호된 파일 접근에는 macOS 권한이 적용돼요.
 
@@ -137,6 +137,8 @@ cronly add ./custom-binary --daily 08:00 --runtime exec
 ```
 
 `--runtime`에는 다른 인터프리터의 이름이나 경로도 쓸 수 있어요 (예: `--runtime python3`). `add`할 때 절대 경로로 바꿔서 기록하기 때문에 cron에서도 찾을 수 있어요. 옵션은 `--daily 08:00`과 `--daily=08:00` 둘 다 쓸 수 있어요.
+
+`--runtime`을 생략하면 `.js`, `.mjs`, `.cjs` 파일은 Node.js로 실행하고, `.sh` 파일은 `#!` 줄을 따라요. `#!/bin/bash`나 `#!/usr/bin/env bash`는 그 인터프리터로 실행하고, 인터프리터는 `add`할 때 절대 경로로 바꿔서 기록해요. `#!/bin/bash -e`나 `#!/bin/busybox sh`처럼 인자가 있는 줄은 스크립트에 실행 권한이 있으면 스크립트를 직접 실행해서 적힌 그대로 적용하고, 실행 권한이 없으면 옵션은 적용되지 않아요. `sh`용 스크립트와 `#!` 줄이 없는 스크립트는 `/bin/sh`로 실행하고, `--runtime sh`는 항상 `/bin/sh`를 써요.
 
 같은 파일을 다시 `add`하면 **추가가 아닌 업데이트**로 동작해요:
 
@@ -213,7 +215,7 @@ cronly print
 cronly doctor
 ```
 
-Node.js, 스크립트·런타임 권한, 로그 쓰기 권한, 중복 등록을 점검해요. macOS에서는 로그인 세션·LaunchAgent 로드 여부·마지막 종료 상태를, cron에서는 crontab 접근을 확인해요. 이전 cron 작업도 이전할 수 있도록 안내해요. 문제가 있으면 종료 코드 1로 끝나요.
+Node.js, 스크립트·런타임 권한, 로그 쓰기 권한, 중복 등록을 점검해요. macOS에서는 로그인 세션·LaunchAgent 로드 여부·마지막 종료 상태를, cron에서는 crontab 접근을 확인해요. Linux에서는 cron 데몬(`cron`, `crond`, `fcron`)이 실행 중인지도 확인해요. 데몬이 없으면 crontab의 작업이 하나도 실행되지 않기 때문이에요. `/proc`에서 다른 사용자의 프로세스가 가려진 경우처럼 프로세스 목록으로 판단할 수 없으면 이 점검은 건너뛰고, `CRONLY_PROC_DIR`을 없는 디렉터리로 지정하면 직접 건너뛸 수 있어요. 이전 cron 작업도 이전할 수 있도록 안내해요. 문제가 있으면 종료 코드 1로 끝나요.
 
 ### macOS 권한 창 (`CRONLY_BACKEND=cron`)
 
@@ -225,10 +227,10 @@ cron은 최소한의 환경으로 작업을 실행해서, 터미널에서는 잘
 
 - **작업 디렉터리**: 스크립트가 있는 디렉터리에서 실행해요. 그래서 `.env`나 `./config.json` 같은 상대 경로가 그대로 동작해요.
 - **PATH**: `cronly add`를 실행한 Node.js의 디렉터리를 맨 앞에 두고 `/usr/bin:/bin`을 붙여요. 셸 스크립트 안에서 `node`, `npm`, `npx`를 부를 수 있어요. 다른 도구는 절대 경로로 부르거나 스크립트에서 `PATH`를 지정해 주세요.
-- **로그**: stdout과 stderr를 `~/.cronly/logs/<id>.log`에 이어서 기록해요. `CRONLY_HOME`으로 기준 디렉터리를 바꿀 수 있어요. 로그 로테이션은 하지 않아요.
+- **로그**: stdout과 stderr를 `~/.cronly/logs/<id>.log`에 이어서 기록해요. `CRONLY_HOME`으로 기준 디렉터리를 바꿀 수 있어요. 로그 로테이션은 하지 않아요. cron에서는 스크립트 디렉터리로 들어가지 못한 오류도 여기에 남아요.
 - **Node.js 버전**: 작업은 등록할 때 쓴 Node.js 실행 파일 그대로 실행돼요 (예: nvm의 버전별 디렉터리). 그 버전을 지우면 `cronly doctor`가 알려 주니, `cronly add`를 다시 실행해서 현재 버전으로 바꿔 주세요.
 
-예전 버전의 Cronly로 등록한 엔트리는 `cronly add`를 다시 실행하기 전까지 이전 명령 형태를 유지해요.
+예전 버전의 Cronly로 등록한 엔트리는 `cronly add`를 다시 실행하기 전까지 이전 명령 형태를 유지해요. 특히 1.0.1 이하에서 등록한 `.sh` 엔트리는 계속 `/bin/sh`로 실행돼요. 스크립트가 다른 인터프리터를 가리키는 엔트리는 `cronly doctor`가 알려 줘요.
 
 ## 중복 등록 방지 방식
 
@@ -246,7 +248,7 @@ cron은 `add`에 넘긴 경로를 그대로 실행해서, `current -> releases/v
 0 * * * * /usr/bin/some-other-job
 
 # [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
-0 2 * * * cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
+0 2 * * * { cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' ; } >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
 # [cronly:end] id=a1b2c3d4
 ```
 
@@ -299,7 +301,7 @@ npm run test:integration
 ## 제약 사항
 
 - macOS 사용자별 LaunchAgent와 Linux user crontab을 사용해요
-- 같은 사용자의 Cronly `add`/`remove`는 순서대로 처리해요. `crontab -e`나 다른 도구의 동시 편집은 이 잠금으로 보호하지 못해요.
+- 같은 사용자의 Cronly `add`/`remove`는 순서대로 처리해요. `crontab -e`나 다른 도구의 동시 편집은 이 잠금으로 보호하지 못해요. 잠금을 잡은 명령이 강제 종료된 뒤 그 프로세스 ID를 다른 프로세스가 다시 쓰면, 다음 명령이 `/tmp` 아래 잠금 디렉터리와 프로세스 ID를 알려 줘요. 그 프로세스가 `cronly`도 `crontab`도 아니라면 그 디렉터리를 지워 주세요.
 - systemd timer, `/etc/cron.d`는 지원하지 않아요
 - 분산 환경은 지원하지 않아요 (단일 머신 전제예요)
 - overlap execution 방지는 포함하지 않아요

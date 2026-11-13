@@ -32,8 +32,9 @@ import {
   removeBlockFromCrontab,
   resolveRuntimePath,
 } from '../lib/commands.mjs'
+import { findExecutable, findIgnoredShebang, getProcDir, isCronDaemonRunning, readShebangRuntime, resolveJobRuntime } from '../lib/job.mjs'
 import { parseArgv } from '../lib/cli.mjs'
-import { readCrontab, writeCrontab } from '../lib/crontab.mjs'
+import { decodeCrontab, encodeCrontab, readCrontab, writeCrontab } from '../lib/crontab.mjs'
 import { normalizeLocale, detectLocale, setLocale, getLocale, t, getUsage } from '../lib/i18n.mjs'
 import enCatalog from '../lib/i18n/en.mjs'
 import koCatalog from '../lib/i18n/ko.mjs'
@@ -59,6 +60,17 @@ const TEST_CRONLY_HOME = mkdtempSync(join(tmpdir(), 'cronly-home-'))
 process.env.CRONLY_HOME = TEST_CRONLY_HOME
 process.env.CRONLY_BACKEND = 'cron'
 process.env.CRONLY_LAUNCHD_DIR = join(TEST_CRONLY_HOME, 'agents')
+
+// doctor looks for a cron daemon in the process list. Give it a fixed list so
+// the result does not depend on the machine that runs the tests.
+function writeProcessList(dir, commands) {
+  commands.forEach((command, i) => {
+    mkdirSync(join(dir, String(i + 1)), { recursive: true })
+    writeFileSync(join(dir, String(i + 1), 'cmdline'), `${command.join('\0')}\0`)
+  })
+  return dir
+}
+process.env.CRONLY_PROC_DIR = writeProcessList(join(TEST_CRONLY_HOME, 'proc'), [['/sbin/init'], ['/usr/sbin/cron', '-f']])
 
 function test(name, fn) {
   try {
@@ -119,7 +131,7 @@ async function withPatchedVersion(version, fn) {
 }
 
 async function withMockCrontabEnv(
-  { initialContent = '', noCrontab = false, readFail = '', writeFail = '', writeDelay = '', whichFail = false } = {},
+  { initialContent = '', noCrontab = false, readFail = '', writeFail = '', writeRefuse = '', writeIgnore = false, writeDelay = '', whichFail = false } = {},
   fn
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'cronly-unit-'))
@@ -152,6 +164,15 @@ if [ "$1" = "-l" ]; then
 fi
 if [ "$1" = "-" ]; then
   if [ -n "$MOCK_WRITE_STARTED" ]; then touch "$MOCK_WRITE_STARTED"; fi
+  if [ -n "$MOCK_WRITE_REFUSE" ]; then
+    # Refuse without reading the input, like crontab for a user in cron.deny.
+    echo "$MOCK_WRITE_REFUSE" >&2
+    exit 1
+  fi
+  if [ "$MOCK_WRITE_IGNORE" = "1" ]; then
+    # Report success without having read the input.
+    exit 0
+  fi
   if [ -n "$MOCK_WRITE_DELAY" ]; then
     sleep "$MOCK_WRITE_DELAY"
   fi
@@ -160,7 +181,8 @@ if [ "$1" = "-" ]; then
     echo "$MOCK_WRITE_FAIL" >&2
     exit 1
   fi
-  cat > "$state"
+  # Like crontab, replace the file only after reading all of the input.
+  cat > "$state.new" && mv "$state.new" "$state"
   if [ -n "$MOCK_WRITE_LOG" ]; then
     cp "$state" "$MOCK_WRITE_LOG"
   fi
@@ -194,12 +216,15 @@ exit 1
     'MOCK_NO_CRONTAB',
     'MOCK_READ_FAIL',
     'MOCK_WRITE_FAIL',
+    'MOCK_WRITE_REFUSE',
+    'MOCK_WRITE_IGNORE',
     'MOCK_WRITE_DELAY',
     'MOCK_WRITE_STARTED',
     'MOCK_WHICH_FAIL',
     'MOCK_BIN_DIR',
     'CRONLY_LANG',
     'CRONLY_HOME',
+    'CRONLY_PROC_DIR',
   ]
   const previousEnv = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
 
@@ -216,6 +241,10 @@ exit 1
   else delete process.env.MOCK_READ_FAIL
   if (writeFail) process.env.MOCK_WRITE_FAIL = writeFail
   else delete process.env.MOCK_WRITE_FAIL
+  if (writeRefuse) process.env.MOCK_WRITE_REFUSE = writeRefuse
+  else delete process.env.MOCK_WRITE_REFUSE
+  if (writeIgnore) process.env.MOCK_WRITE_IGNORE = '1'
+  else delete process.env.MOCK_WRITE_IGNORE
   if (writeDelay) process.env.MOCK_WRITE_DELAY = writeDelay
   else delete process.env.MOCK_WRITE_DELAY
   if (whichFail) process.env.MOCK_WHICH_FAIL = '1'
@@ -463,7 +492,7 @@ test('buildBlock: runtimePath, PATH, 로그 경로를 모두 반영', () => {
   })
   assert.equal(
     block.split('\n')[1],
-    "0 8 * * * cd '/home/user' && PATH='/opt/node/bin:/usr/bin:/bin' '/opt/node/bin/node' '/home/user/job.mjs'" +
+    "0 8 * * * { cd '/home/user' && PATH='/opt/node/bin:/usr/bin:/bin' '/opt/node/bin/node' '/home/user/job.mjs' ; }" +
       " >> '/home/user/.cronly/logs/abcd1234.log' 2>&1"
   )
 })
@@ -785,7 +814,7 @@ test('라운드트립: 로그와 PATH가 붙은 @reboot 블록도 alias로 파�
 
   assert.equal(blocks.length, 1)
   assert.equal(blocks[0].schedule, '@reboot')
-  assert.ok(blocks[0].command.startsWith("cd '/home/user' && "))
+  assert.ok(blocks[0].command.startsWith("{ cd '/home/user' && "))
 })
 
 test('중복 방지: 같은 path로 buildBlock 두 번 -> parseBlocks에서 같은 id', () => {
@@ -820,7 +849,45 @@ test('removeBlockFromCrontab: 수동 엔트리의 공백 포맷을 전역 정리
   const target = parseBlocks(raw)[0]
   const next = removeBlockFromCrontab(raw, target)
 
-  assert.equal(next, raw.replace(target.raw, ''))
+  // 블록과, add가 그 앞에 넣는 빈 줄 하나만 사라진다. 나머지 줄은 그대로 남는다
+  assert.equal(next, [
+    'MAILTO=user@example.com',
+    '',
+    '',
+    '0 * * * * /manual-job',
+    '',
+    '',
+    '',
+    '30 * * * * /another-manual',
+    '',
+  ].join('\n'))
+})
+
+test('removeBlockFromCrontab: add가 넣은 구분 빈 줄까지 지워 add를 되돌림', () => {
+  const blockOf = (name) => buildBlock({ schedule: '0 2 * * *', absolutePath: `/home/user/${name}.sh`, runtime: 'sh' })
+  const [x, y] = [blockOf('x'), blockOf('y')]
+  const remove = (raw, block) => removeBlockFromCrontab(raw, parseBlocks(raw).find((b) => b.raw === block))
+  const cases = [
+    [`${x}\n`, ''],
+    [`A\n\n${x}\n`, 'A\n'],
+    // 마지막 줄에 개행이 없으면 crontab이 설치를 거부하므로 항상 개행으로 끝낸다
+    [`A\n\n${x}`, 'A\n'],
+    [`A\n\n${x}\nB`, 'A\nB\n'],
+    [`A\n${x}\n`, 'A\n'],
+    [`A\n\n${x}\n\n${y}\n`, `A\n\n${y}\n`],
+    [`${x}\n\n${y}\n`, `${y}\n`],
+    [`${x}\nB\n`, 'B\n'],
+    [`A\n\n${x}\nB\n`, 'A\nB\n'],
+    [`A\n${x}\n\nB\n`, 'A\n\nB\n'],
+    [`A\n  \n${x}\n`, 'A\n  \n'],
+    [`\n\n${x}\n`, ''],
+  ]
+  for (const [raw, expected] of cases) assert.equal(remove(raw, x), expected, JSON.stringify(raw.replace(x, '<x>')))
+  // 같은 내용의 블록이 둘이면 한 번에 하나씩 지운다
+  const twice = `${x}\n\n${x}\n`
+  assert.equal(remove(twice, x), `${x}\n`)
+  // 이미 지워진 블록은 아무것도 바꾸지 않는다
+  assert.equal(removeBlockFromCrontab('A\n\nB\n', parseBlocks(`${x}\n`)[0]), 'A\n\nB\n')
 })
 
 // ── splitCommandWords / inspectCommand ──────────────────────────────────────
@@ -835,12 +902,15 @@ test("splitCommandWords: 따옴표, '\\'' 이스케이프, \\% 복원", () => {
   })
   const command = parseBlocks(block)[0].command
   assert.deepEqual(splitCommandWords(command), [
+    '{',
     'cd',
     '/a b',
     '&&',
     'PATH=/x:/y',
     '/bin/sh',
     "/a b/it's 100%.sh",
+    ';',
+    '}',
     '>>',
     '/l/1.log',
     '2>&1',
@@ -877,6 +947,13 @@ test('inspectCommand: 예전 형식(cd/로그 없음)도 런타임을 찾음', (
     runtimeBin: '/usr/bin/node',
     logPath: null,
   })
+})
+
+test('inspectCommand: 1.0.1 형식({ } 묶음 없음)과 exec 묶음에서도 런타임과 로그 경로를 찾음', () => {
+  const legacy = "cd '/x' && PATH='/opt/node/bin:/usr/bin:/bin' '/opt/node/bin/node' '/x/job.mjs' >> '/l/1.log' 2>&1"
+  assert.deepEqual(inspectCommand(legacy, '/x/job.mjs'), { runtimeBin: '/opt/node/bin/node', logPath: '/l/1.log' })
+  assert.deepEqual(inspectCommand("{ cd '/x' && PATH='/p' '/x/tool' ; } >> '/l/2.log' 2>&1", '/x/tool'), { runtimeBin: null, logPath: '/l/2.log' })
+  assert.deepEqual(inspectCommand("{ cd '/x' && '/x/tool' ; } >> '/l/2.log' 2>&1", '/x/tool'), { runtimeBin: null, logPath: '/l/2.log' })
 })
 
 test('inspectCommand: exec 런타임이나 스크립트를 못 찾으면 runtimeBin은 null', () => {
@@ -1553,6 +1630,8 @@ test('i18n catalogs: 함수형 메시지가 모든 locale에서 렌더링돼요'
     runtime: 'python3',
     length: 1200,
     other: 'ef567890',
+    pids: '1234',
+    shebang: '/bin/bash -e',
   }
 
   for (const [locale, catalog] of Object.entries(LOCALE_CATALOGS)) {
@@ -1567,6 +1646,13 @@ test('i18n catalogs: 함수형 메시지가 모든 locale에서 렌더링돼요'
     assert.equal(typeof interval({ flag: 'every-hours', reason: 'no_value' }), 'string', `${locale}:no_value`)
     assert.equal(typeof interval({ flag: 'every-hours', value: 'abc', reason: 'not_integer' }), 'string', `${locale}:not_integer`)
     assert.equal(typeof interval({ flag: 'every-hours', value: '25', reason: 'out_of_range', min: 1, max: 23 }), 'string', `${locale}:out_of_range`)
+
+    const busy = catalog['crontab.lock_busy']
+    const withPids = busy({ path: '/tmp/x.lock', pids: '12, 34' })
+    const withoutPids = busy({ path: '/tmp/x.lock', pids: '' })
+    assert.ok(withPids.includes('12, 34') && withPids.includes('/tmp/x.lock'), `${locale}:lock_busy with pids`)
+    // 잡고 있는 프로세스를 모르면(방금 생긴 잠금) 지우라고 안내하지 않는다
+    assert.ok(!withoutPids.includes('/tmp/x.lock') && withPids.startsWith(withoutPids.slice(0, 10)), `${locale}:lock_busy without pids`)
   }
 })
 
@@ -1598,6 +1684,30 @@ await testAsync('readCrontab: no crontab은 빈 문자열', async () => {
     const raw = await readCrontab()
     assert.equal(raw, '')
   })
+})
+
+await testAsync('readCrontab: BusyBox(Alpine)의 crontab 없음 메시지도 빈 문자열', async () => {
+  await withMockCrontabEnv({ readFail: "crontab: can't open 'deploy': No such file or directory" }, async (ctx) => {
+    assert.equal(await readCrontab(), '')
+    // crontab이 없는 사용자의 첫 등록이 실패하지 않는다
+    const file = ctx.createScript('job.mjs', '')
+    await captureLogs(() => add(file, { schedule: '0 8 * * *' }))
+    assert.deepEqual(parseBlocks(ctx.readState()).map((b) => b.path), [file])
+  })
+})
+
+await testAsync('readCrontab: 읽지 못한 crontab을 빈 것으로 취급하지 않음', async () => {
+  for (const message of [
+    "crontab: can't open 'deploy': Permission denied",
+    "crontab: can't change directory to '/var/spool/cron/crontabs': No such file or directory",
+  ]) {
+    await withMockCrontabEnv({ initialContent: '0 * * * * /job\n', readFail: message }, async (ctx) => {
+      await assert.rejects(() => readCrontab(), { message: `crontab -l failed: ${message}` })
+      const file = ctx.createScript('job.mjs', '')
+      await assert.rejects(() => add(file, { schedule: '0 8 * * *' }), /crontab -l failed/)
+      assert.equal(ctx.readState(), '0 * * * * /job\n')
+    })
+  }
 })
 
 await testAsync('readCrontab: 일반 실패는 reject', async () => {
@@ -1671,6 +1781,104 @@ await testAsync('writeCrontab: macOS가 막으면(Operation not permitted) 해�
     await assert.rejects(() => writeCrontab('0 * * * * /job\n', { platform: 'linux' }), {
       message: 'crontab - failed: crontab: tmp/tmp.123: Operation not permitted',
     })
+  })
+})
+
+await testAsync('writeCrontab: crontab이 입력을 읽지 않고 거부해도 EPIPE로 죽지 않고 거부 사유를 보고', async () => {
+  const refusal = 'You (deploy) are not allowed to use this program (crontab)'
+  await withMockCrontabEnv({ initialContent: '0 * * * * /job\n', writeRefuse: refusal }, async (ctx) => {
+    // 파이프 버퍼보다 큰 crontab: 자식이 먼저 끝나면 남은 쓰기가 EPIPE로 실패한다
+    const large = `${'# filler line\n'.repeat(600000)}0 * * * * /job\n`
+    await assert.rejects(() => writeCrontab(large), { message: `crontab - failed: ${refusal}` })
+    await assert.rejects(() => writeCrontab('0 * * * * /other\n'), { message: `crontab - failed: ${refusal}` })
+    assert.equal(ctx.readState(), '0 * * * * /job\n')
+  })
+})
+
+await testAsync('writeCrontab: 입력이 끝까지 전달되지 않았으면 crontab이 성공으로 끝나도 실패로 보고', async () => {
+  await withMockCrontabEnv({ initialContent: '0 * * * * /job\n', writeIgnore: true }, async (ctx) => {
+    const large = `${'# filler line\n'.repeat(600000)}0 * * * * /job\n`
+    await assert.rejects(() => writeCrontab(large), /^Error: crontab - failed: write E(PIPE|CONNRESET)$/)
+    assert.equal(ctx.readState(), '0 * * * * /job\n')
+  })
+})
+
+await testAsync('writeCrontab: 자식 추적에 실패하면 입력을 닫지 않고 중단해 crontab을 비우지 않음', async () => {
+  const original = '# manual\n0 0 * * * /bin/true\n'
+  await withMockCrontabEnv({ initialContent: original }, async (ctx) => {
+    let childPid
+    const trackProcess = (pid) => {
+      childPid = pid
+      throw Object.assign(new Error('no space left on device'), { code: 'ENOSPC' })
+    }
+    await assert.rejects(() => writeCrontab('0 * * * * /job\n', { trackProcess }), { code: 'ENOSPC' })
+    // 자식이 살아서 입력 종료를 기다리면, CLI가 끝나는 순간 빈 crontab을 설치한다
+    assert.throws(() => process.kill(childPid, 0), { code: 'ESRCH' })
+    assert.equal(ctx.readState(), original)
+    assert.equal(ctx.readWriteLog(), '')
+  })
+})
+
+test('decodeCrontab/encodeCrontab: 올바른 UTF-8은 그대로 읽고 씀', () => {
+  for (const text of ['', '0 * * * * /job\n', '# 백업 작업 ✓ \u{1f600} \u{10080} �\n']) {
+    const bytes = Buffer.from(text, 'utf8')
+    assert.equal(decodeCrontab(bytes), text)
+    assert.ok(encodeCrontab(text).equals(bytes))
+  }
+})
+
+test('decodeCrontab/encodeCrontab: UTF-8이 아닌 바이트를 U+FFFD로 바꾸지 않고 그대로 되돌림', () => {
+  // 오래된 서버의 crontab에 남아 있는 EUC-KR 주석 "# 백업"
+  const eucKr = Buffer.from([0x23, 0x20, 0xb9, 0xe9, 0xbe, 0xf7, 0x0a])
+  const text = decodeCrontab(eucKr)
+  assert.equal(text.length, eucKr.length)
+  assert.ok(text.startsWith('# ') && text.endsWith('\n'))
+  assert.ok(!text.includes('�'))
+  assert.ok(encodeCrontab(text).equals(eucKr))
+
+  // 길이별 올바른 문자(각 범위의 경계 포함) 사이에 잘못된 바이트열을 끼워 넣는다
+  const valid = '# é ࠀ ퟿  한글 \u{10000} \u{40000} \u{1f600} \u{10080} \u{10ffff}'
+  const malformed = [
+    [0x80], [0xbf], [0xc0, 0xaf], [0xc1, 0xbf], [0xc2], [0xc2, 0x41],
+    [0xe0, 0x80, 0x80], [0xe0, 0x9f, 0xbf], [0xed, 0xa0, 0x80], [0xed, 0xbf, 0xbf], [0xe3], [0xe3, 0x81], [0xe3, 0x81, 0x41],
+    [0xf0, 0x80, 0x80, 0x80], [0xf0, 0x8f, 0xbf, 0xbf], [0xf4, 0x90, 0x80, 0x80],
+    [0xf0, 0x9f, 0x98], [0xf0, 0x9f, 0x98, 0x41], [0xf0, 0x9f, 0x41, 0x80],
+    [0xf5, 0x80, 0x80, 0x80], [0xfe], [0xff],
+  ]
+  for (const bytes of malformed) {
+    const alone = Buffer.from(bytes)
+    assert.ok(encodeCrontab(decodeCrontab(alone)).equals(alone), `bytes ${alone.toString('hex')}`)
+
+    const mixed = Buffer.concat([Buffer.from(`${valid} `), alone, Buffer.from(` ${valid}\n`)])
+    const decoded = decodeCrontab(mixed)
+    assert.ok(decoded.startsWith(`${valid} `) && decoded.endsWith(` ${valid}\n`), `text around ${alone.toString('hex')}`)
+    assert.ok(!decoded.includes('�'))
+    assert.ok(encodeCrontab(decoded).equals(mixed), `bytes around ${alone.toString('hex')}`)
+  }
+})
+
+await testAsync('add/remove: UTF-8이 아닌 기존 crontab 내용을 바이트 그대로 보존', async () => {
+  // EUC-KR 주석과 Latin-1 경로. 문자열로 읽고 쓰면 U+FFFD로 바뀌어 무관한 작업의 경로가 깨진다
+  const original = Buffer.concat([
+    Buffer.from('# '), Buffer.from([0xb9, 0xe9, 0xbe, 0xf7]),
+    Buffer.from('\n0 3 * * * /srv/caf'), Buffer.from([0xe9]), Buffer.from('/backup.sh\n'),
+  ])
+  await withMockCrontabEnv({}, async (ctx) => {
+    writeFileSync(ctx.stateFile, original)
+    const file = ctx.createScript('작업.mjs', '')
+
+    await captureLogs(() => add(file, { schedule: '0 8 * * *' }))
+    const added = readFileSync(ctx.stateFile)
+    assert.ok(added.subarray(0, original.length).equals(original))
+    const blocks = parseBlocks(added.subarray(original.length).toString('utf8'))
+    assert.deepEqual(blocks.map((b) => [b.path, b.schedule]), [[file, '0 8 * * *']])
+
+    await captureLogs(() => add(file, { schedule: '0 9 * * *' }))
+    assert.ok(readFileSync(ctx.stateFile).subarray(0, original.length).equals(original))
+    assert.equal((await captureLogs(() => list())).logs.length, 1)
+
+    await captureLogs(() => remove(file, {}))
+    assert.ok(readFileSync(ctx.stateFile).equals(original), 'remove restores the original bytes')
   })
 })
 
@@ -1748,10 +1956,23 @@ await testAsync('add: 스크립트 디렉터리로 cd 하고 로그 파일에 �
     const [block] = parseBlocks(ctx.readState())
     assert.equal(
       block.command,
-      `cd '${ctx.dir}' && PATH='${getCronPath()}' '${process.execPath}' '${file}' >> '${logPath}' 2>&1`
+      `{ cd '${ctx.dir}' && PATH='${getCronPath()}' '${process.execPath}' '${file}' ; } >> '${logPath}' 2>&1`
     )
     assert.ok(existsSync(ctx.logDir), 'log directory should be created')
     assert.deepEqual(logs, [`Registered: ${file} (id=${makeId(file)})`, `  Log: ${logPath}`])
+  })
+})
+
+await testAsync('add/remove: 마지막 줄에 개행이 없던 crontab도 개행으로 끝나도록 씀', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const file = ctx.createScript('job.mjs', '')
+    const block = buildBlock({ schedule: '0 8 * * *', absolutePath: file, runtime: 'node' })
+    ctx.setState(`# manual\n\n${block}`)
+    await captureLogs(() => add(file, { schedule: '0 9 * * *' }))
+    assert.ok(ctx.readState().endsWith('# [cronly:end] id=' + makeId(file) + '\n'))
+    ctx.setState(`# manual\n\n${parseBlocks(ctx.readState())[0].raw}`)
+    await captureLogs(() => remove(file, {}))
+    assert.equal(ctx.readState(), '# manual\n')
   })
 })
 
@@ -1805,6 +2026,156 @@ await testAsync('add: exec 런타임은 실행 권한이 없으면 거부', asyn
   })
 })
 
+await testAsync('readShebangRuntime: #! 줄에 따라 sh·인터프리터·exec 중 무엇으로 실행할지 정함', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    // [첫 줄, 실행 권한이 있을 때, 없을 때]
+    const cases = [
+      ['#!/bin/sh\necho hi\n', 'sh', 'sh'],
+      ['#!/usr/bin/env sh\n', 'sh', 'sh'],
+      ['#! /bin/sh -e\n', 'sh', 'sh'],
+      ['#!/bin/bash\n', '/bin/bash', '/bin/bash'],
+      ['#!/usr/bin/env bash\n', 'bash', 'bash'],
+      ['#!/bin/bash\r\necho hi\r\n', '/bin/bash', '/bin/bash'],
+      ['#!/opt/tools/bash', '/opt/tools/bash', '/opt/tools/bash'],
+      // 인자가 있는 줄은 커널만 그대로 적용할 수 있다: 실행 권한이 있으면 exec
+      ['#!/bin/bash -eu\necho hi\n', 'exec', '/bin/bash'],
+      [`#!/bin/bash -${'x'.repeat(600)}\n`, 'exec', '/bin/bash'],
+      ['#!/usr/bin/env bash -e\n', 'exec', 'bash'],
+      // 인터프리터만 꺼내 쓰면 스크립트 경로를 applet 이름으로 받는다
+      ['#!/bin/busybox sh\n', 'exec', 'sh'],
+      // env의 옵션·변수 지정은 해석하지 않는다
+      ['#!/usr/bin/env -S bash -e\n', 'exec', 'sh'],
+      ['#!/usr/bin/env -u FOO bash\n', 'exec', 'sh'],
+      ['#!/usr/bin/env LANG=C zsh\n', 'exec', 'sh'],
+      // #! 줄이 없거나 명령이 빠져 있으면 null
+      ['echo no shebang\n', null, null],
+      ['', null, null],
+      ['#!\n', null, null],
+      ['#!/usr/bin/env\n', null, null],
+      [' #!/bin/bash\n', null, null],
+    ]
+    cases.forEach(([source, executable, plain], i) => {
+      const label = JSON.stringify(source.slice(0, 40))
+      assert.equal(readShebangRuntime(ctx.createScript(`exec-${i}.sh`, source, 0o755)), executable, `${label} (executable)`)
+      assert.equal(readShebangRuntime(ctx.createScript(`plain-${i}.sh`, source, 0o644)), plain, `${label} (not executable)`)
+    })
+    assert.equal(readShebangRuntime(join(ctx.dir, 'missing.sh')), null)
+  })
+})
+
+await testAsync('resolveJobRuntime: --runtime이 없으면 확장자로, .sh는 #! 줄로 런타임을 정함', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const shell = ctx.createScript('myshell', '#!/bin/sh\nexec /bin/sh "$@"\n')
+    const env = { PATH: ctx.dir }
+    const plain = ctx.createScript('plain.sh', 'echo hi\n')
+    const posix = ctx.createScript('posix.sh', '#!/bin/sh\necho hi\n')
+    const byPath = ctx.createScript('by-path.sh', `#!${shell}\necho hi\n`)
+    const byName = ctx.createScript('by-name.sh', '#!/usr/bin/env myshell\necho hi\n')
+    const missing = ctx.createScript('missing.sh', '#!/no/such/shell\necho hi\n')
+
+    assert.deepEqual(resolveJobRuntime(ctx.createScript('job.mjs', ''), undefined, env), { runtime: 'node', runtimePath: process.execPath })
+    assert.deepEqual(resolveJobRuntime(plain, undefined, env), { runtime: 'sh', runtimePath: '/bin/sh' })
+    assert.deepEqual(resolveJobRuntime(posix, undefined, env), { runtime: 'sh', runtimePath: '/bin/sh' })
+    assert.deepEqual(resolveJobRuntime(byPath, undefined, env), { runtime: shell, runtimePath: shell })
+    assert.deepEqual(resolveJobRuntime(byName, undefined, env), { runtime: 'myshell', runtimePath: shell })
+    // 인자가 있는 #! 줄: 실행 권한이 있으면 스크립트를 직접 실행
+    assert.deepEqual(resolveJobRuntime(ctx.createScript('strict.sh', `#!${shell} -e\necho hi\n`), undefined, env), { runtime: 'exec', runtimePath: '' })
+    assert.deepEqual(resolveJobRuntime(ctx.createScript('loose.sh', `#!${shell} -e\necho hi\n`, 0o644), undefined, env), { runtime: shell, runtimePath: shell })
+    // 명시한 --runtime은 #! 줄보다 우선
+    assert.deepEqual(resolveJobRuntime(byPath, 'sh', env), { runtime: 'sh', runtimePath: '/bin/sh' })
+    assert.deepEqual(resolveJobRuntime(plain, 'myshell', env), { runtime: 'myshell', runtimePath: shell })
+    assert.throws(() => resolveJobRuntime(missing, undefined, env), /Runtime not found: \/no\/such\/shell \(named on the #! line of .*missing\.sh\)/)
+    assert.throws(() => resolveJobRuntime(byName, undefined, {}), /Runtime not found: myshell \(named on the #! line/)
+    assert.throws(() => resolveJobRuntime(ctx.createScript('job.py', ''), undefined, env), /Cannot infer runtime/)
+    assert.throws(() => resolveJobRuntime(plain, 'nope', env), { message: 'Runtime not found: nope' })
+  })
+})
+
+await testAsync('add: .sh는 /bin/sh가 아니라 #! 줄의 인터프리터로 실행되도록 등록', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    // bash 전용 문법: dash가 /bin/sh인 Debian·Ubuntu에서 /bin/sh로 넘기면 문법 오류로 끝난다
+    if (!existsSync('/bin/bash')) return
+    const file = ctx.createScript('arrays.sh', '#!/bin/bash\nitems=(a b c)\n[[ ${#items[@]} -eq 3 ]] && echo "count=${#items[@]}"\n', 0o644)
+    await captureLogs(() => add(file, { schedule: '0 8 * * *' }))
+
+    const [block] = parseBlocks(ctx.readState())
+    assert.equal(block.runtime, '/bin/bash')
+    assert.equal(inspectCommand(block.command, file).runtimeBin, '/bin/bash')
+    const run = spawnSync('/bin/sh', ['-c', decodeCronCommand(block.command)], { encoding: 'utf8' })
+    assert.equal(run.status, 0, run.stderr)
+    assert.equal(readFileSync(join(ctx.logDir, `${makeId(file)}.log`), 'utf8'), 'count=3\n')
+  })
+})
+
+await testAsync('add: 인자가 있는 #! 줄은 실행 권한이 있으면 그대로 적용되도록 exec로, 없으면 sh로 등록', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    if (!existsSync('/bin/bash')) return
+    // -e는 실패한 명령에서 멈추게 한다. 인터프리터만 꺼내 쓰면 이 옵션이 사라진다
+    const strict = ctx.createScript('strict.sh', '#!/bin/bash -e\necho before\nfalse\necho after\n')
+    const logPath = join(ctx.logDir, `${makeId(strict)}.log`)
+    await captureLogs(() => add(strict, { schedule: '0 8 * * *' }))
+    let [block] = parseBlocks(ctx.readState())
+    assert.equal(block.runtime, 'exec')
+    assert.deepEqual(inspectCommand(block.command, strict), { runtimeBin: null, logPath })
+    const run = spawnSync('/bin/sh', ['-c', decodeCronCommand(block.command)], { encoding: 'utf8' })
+    assert.notEqual(run.status, 0)
+    assert.equal(readFileSync(logPath, 'utf8'), 'before\n')
+    await captureLogs(() => remove(strict, {}))
+
+    // "busybox sh"처럼 인자가 있어야 도는 줄: 인터프리터만 꺼내 쓰면 스크립트 경로가 applet 이름이 된다
+    const applet = ctx.createScript('applet.sh', '#!/bin/busybox sh\necho hi\n')
+    await captureLogs(() => add(applet, { schedule: '0 8 * * *' }))
+    ;[block] = parseBlocks(ctx.readState())
+    assert.equal(block.runtime, 'exec')
+    assert.ok(!block.command.includes('busybox'))
+    // 실행 권한이 없으면 1.0.1처럼 /bin/sh로 실행
+    chmodSync(applet, 0o644)
+    await captureLogs(() => add(applet, { schedule: '0 8 * * *' }))
+    ;[block] = parseBlocks(ctx.readState())
+    assert.equal(block.runtime, 'sh')
+    assert.equal(inspectCommand(block.command, applet).runtimeBin, '/bin/sh')
+  })
+})
+
+await testAsync('add: #! 줄의 인터프리터가 없으면 crontab을 건드리지 않고 거부', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const file = ctx.createScript('job.sh', '#!/no/such/shell\necho hi\n')
+    await assert.rejects(() => add(file, { schedule: '0 8 * * *' }), /named on the #! line/)
+    assert.equal(ctx.readState(), '')
+    // 직접 고르면 등록할 수 있다
+    await captureLogs(() => add(file, { schedule: '0 8 * * *', runtime: 'sh' }))
+    assert.equal(parseBlocks(ctx.readState())[0].runtime, 'sh')
+  })
+})
+
+await testAsync('doctor: #! 줄과 달리 /bin/sh로 남아 있는 엔트리를 실패 없이 알림', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const shell = ctx.createScript('myshell', '#!/bin/sh\nexec /bin/sh "$@"\n')
+    const file = ctx.createScript('job.sh', `#!${shell}\necho hi\n`)
+    // 예전 버전이 등록한 엔트리
+    ctx.setState(`${buildBlock({ schedule: '0 8 * * *', absolutePath: file, runtime: 'sh' })}\n`)
+    const [legacy] = parseBlocks(ctx.readState())
+    assert.equal(findIgnoredShebang(legacy), shell)
+
+    let report = await captureLogs(() => doctor())
+    assert.ok(report.logs.includes(`  ${legacy.id}: runs with /bin/sh although the script starts with #!${shell}. Run cronly add again to follow that line.`))
+    assert.equal(report.logs.at(-1), 'All checks passed.')
+    assert.equal(report.result, true)
+
+    await captureLogs(() => add(file, { schedule: '0 8 * * *' }))
+    const [current] = parseBlocks(ctx.readState())
+    assert.equal(current.runtime, shell)
+    assert.equal(findIgnoredShebang(current), null)
+    report = await captureLogs(() => doctor())
+    assert.ok(!report.logs.some((line) => line.includes('although the script starts with')))
+    assert.equal(report.result, true)
+
+    assert.equal(findIgnoredShebang({ runtime: 'sh', path: ctx.createScript('strict.sh', '#!/bin/bash  -e\n') }), '/bin/bash -e')
+    assert.equal(findIgnoredShebang({ runtime: 'sh', path: ctx.createScript('posix.sh', '#!/bin/sh\n') }), null)
+    assert.equal(findIgnoredShebang({ runtime: 'sh', path: ctx.createScript('plain.sh', 'echo hi\n') }), null)
+  })
+})
+
 await testAsync('isSameFile: 심볼릭 링크를 포함해 같은 파일일 때만 true', async () => {
   await withMockCrontabEnv({}, async (ctx) => {
     const { file, viaLink } = ctx.createLinkedScript()
@@ -1827,7 +2198,7 @@ await testAsync('add: 같은 파일을 다른 경로로 다시 등록하면 기�
     assert.equal(blocks[0].path, viaLink)
     assert.equal(blocks[0].schedule, '0 9 * * *')
     // cron은 링크를 거친 경로로 실행해서, current가 바뀌면 새 릴리스를 실행
-    assert.ok(blocks[0].command.startsWith(`cd '${join(ctx.dir, 'current')}' && `))
+    assert.ok(blocks[0].command.startsWith(`{ cd '${join(ctx.dir, 'current')}' && `))
     assert.deepEqual(logs.slice(0, 2), [
       `Updated: ${viaLink} (id=${makeId(viaLink)})`,
       `  Replaced the entry for the same file: ${file} (id=${makeId(file)})`,
@@ -1944,6 +2315,21 @@ await testAsync('remove: 인자 없이 호출하면 거부', async () => {
   await assert.rejects(() => remove(undefined, {}), /file path or --id/)
 })
 
+await testAsync('remove: 파일과 --id를 함께 주면 어느 쪽도 지우지 않고 거부', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const a = ctx.createScript('a.sh', 'echo a\n')
+    const b = ctx.createScript('b.sh', 'echo b\n')
+    await captureLogs(async () => { await add(a, { schedule: '0 1 * * *' }); await add(b, { schedule: '0 2 * * *' }) })
+    const before = ctx.readState()
+    // 예전에는 --id가 조용히 이겨서, 붙여 넣은 인자가 나뉘면 의도하지 않은 작업이 지워졌다
+    await assert.rejects(() => remove(b, { id: makeId(a) }), /either a file path or --id, not both/)
+    const result = ctx.cli(['remove', '--id', makeId(a), 'copy'])
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /either a file path or --id, not both/)
+    assert.equal(ctx.readState(), before)
+  })
+})
+
 await testAsync('remove: id로 삭제', async () => {
   await withMockCrontabEnv({}, async (ctx) => {
     const file = ctx.createScript('job.sh', '#!/bin/sh\necho one\n')
@@ -1995,6 +2381,27 @@ await testAsync('remove: 다른 경로로 등록된 같은 파일의 엔트리�
   })
 })
 
+await testAsync('add/remove: 등록과 삭제를 반복해도 빈 줄이 쌓이지 않고 원래 crontab으로 돌아옴', async () => {
+  const original = 'MAILTO=user@example.com\n0 * * * * /usr/bin/manual-job\n'
+  await withMockCrontabEnv({ initialContent: original }, async (ctx) => {
+    const [a, b, c] = ['a.mjs', 'b.mjs', 'c.mjs'].map((name) => ctx.createScript(name, ''))
+    const noGaps = () => assert.ok(!/\n\n\n/.test(ctx.readState()), JSON.stringify(ctx.readState()))
+    await captureLogs(async () => {
+      for (let round = 0; round < 2; round++) {
+        await add(a, { schedule: '0 1 * * *' }); noGaps()
+        await add(b, { schedule: '0 2 * * *' }); noGaps()
+        await add(c, { schedule: '0 3 * * *' }); noGaps()
+        await remove(b, {}); noGaps()
+        await add(b, { schedule: '0 4 * * *' }); noGaps()
+        await remove(a, {}); noGaps()
+        await remove(c, {}); noGaps()
+        await remove(b, {})
+        assert.equal(ctx.readState(), original)
+      }
+    })
+  })
+})
+
 await testAsync('remove: --id는 같은 id의 블록을 모두 삭제', async () => {
   await withMockCrontabEnv({}, async (ctx) => {
     const file = ctx.createScript('job.sh', '#!/bin/sh\necho one\n')
@@ -2030,6 +2437,7 @@ await testAsync('doctor: 정상 환경 점검', async () => {
     const { logs, result } = await captureLogs(() => doctor())
     assert.ok(logs.some((line) => line.includes('Node.js')))
     assert.ok(logs.some((line) => line.includes('crontab command: found')))
+    assert.ok(logs.includes('  cron daemon: running'))
     assert.ok(logs.some((line) => line.includes('Managed entries: 1')))
     assert.equal(logs.at(-1), 'All checks passed.')
     assert.equal(result, true)
@@ -2038,7 +2446,8 @@ await testAsync('doctor: 정상 환경 점검', async () => {
 
 await testAsync('doctor: 문제 환경도 보고', async () => {
   await withPatchedVersion('v14.7.0', async () => {
-    await withMockCrontabEnv({ whichFail: true, readFail: 'mock read denied' }, async () => {
+    await withMockCrontabEnv({}, async (ctx) => {
+      process.env.PATH = join(ctx.dir, 'no-such-bin')
       const { logs, result } = await captureLogs(() => doctor())
       assert.ok(logs.some((line) => line.includes('Node.js 14.8.0 or higher')))
       assert.ok(logs.some((line) => line.includes('crontab command: not found')))
@@ -2046,6 +2455,73 @@ await testAsync('doctor: 문제 환경도 보고', async () => {
       assert.equal(logs.at(-1), 'Some checks failed.')
       assert.equal(result, false)
     })
+  })
+})
+
+await testAsync('doctor: which 명령이 없거나 실패해도 crontab을 PATH에서 직접 찾음', async () => {
+  // 최소 이미지에는 which가 없다. 예전에는 "not found"와 "read: ok"가 함께 나오고 실패로 끝났다
+  await withMockCrontabEnv({ whichFail: true }, async (ctx) => {
+    assert.equal(findExecutable('crontab'), join(ctx.dir, 'crontab'))
+    assert.equal(findExecutable('definitely-missing-command'), null)
+    assert.equal(findExecutable('crontab', {}), null)
+    const { logs, result } = await captureLogs(() => doctor())
+    assert.ok(logs.includes('  crontab command: found'))
+    assert.ok(logs.includes('  crontab read: ok'))
+    assert.equal(logs.at(-1), 'All checks passed.')
+    assert.equal(result, true)
+  })
+})
+
+await testAsync('isCronDaemonRunning: 프로세스 목록에서 cron 데몬을 찾고, 알 수 없으면 null', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    assert.equal(getProcDir({}), '/proc')
+    assert.equal(getProcDir({ CRONLY_PROC_DIR: '/custom/proc' }), '/custom/proc')
+    // 실제 /proc: 값은 실행 환경마다 다르다 (macOS는 null). 다른 목록을 주면 이 머신의 systemd-cron은 보지 않는다
+    assert.ok([true, false, null].includes(isCronDaemonRunning('/proc')))
+    let n = 0
+    const list = (commands) => writeProcessList(join(ctx.dir, `proc-${n++}`), commands)
+    const none = []
+
+    for (const daemon of [['/usr/sbin/cron', '-f'], ['/usr/sbin/crond', '-n'], ['crond', '-f', '-d', '8'], ['busybox', 'crond', '-f'], ['/usr/sbin/fcron']]) {
+      assert.equal(isCronDaemonRunning(list([['/sbin/init'], ['node', 'server.js'], daemon]), none), true, daemon.join(' '))
+    }
+    for (const other of [['node', 'server.js'], ['busybox'], ['busybox', 'sh'], ['/usr/bin/crontab', '-l'], ['']]) {
+      assert.equal(isCronDaemonRunning(list([['/sbin/init'], other]), none), false, other.join(' '))
+    }
+    // /proc가 아닌 항목과, 목록을 읽는 사이 끝난 프로세스는 건너뛴다
+    const racing = list([['/sbin/init']])
+    mkdirSync(join(racing, 'self'))
+    mkdirSync(join(racing, '4242'))
+    assert.equal(isCronDaemonRunning(racing, none), false)
+
+    // /proc가 없거나(macOS) 다른 사용자의 프로세스가 가려져 PID 1을 읽을 수 없으면 판단하지 않는다
+    assert.equal(isCronDaemonRunning(join(ctx.dir, 'missing-proc'), none), null)
+    const hidden = join(ctx.dir, 'proc-hidden')
+    mkdirSync(join(hidden, '77'), { recursive: true })
+    writeFileSync(join(hidden, '77', 'cmdline'), 'node\0')
+    assert.equal(isCronDaemonRunning(hidden, none), null)
+
+    // systemd-cron은 데몬 없이 타이머로 crontab을 실행한다
+    const generator = ctx.createScript('systemd-crontab-generator', '')
+    assert.equal(isCronDaemonRunning(list([['/sbin/init']]), [join(ctx.dir, 'absent'), generator]), true)
+    assert.equal(isCronDaemonRunning(list([['/sbin/init']])), false)
+  })
+})
+
+await testAsync('doctor: cron 데몬이 실행 중이 아니면 실패로 보고하고, 알 수 없으면 점검을 건너뜀', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    process.env.CRONLY_PROC_DIR = writeProcessList(join(ctx.dir, 'proc-no-cron'), [['/sbin/init'], ['node', 'server.js']])
+    let report = await captureLogs(() => doctor())
+    assert.ok(report.logs.includes('  ⚠ cron daemon: not running. Jobs will not start until cron (or crond) is running.'))
+    assert.equal(report.logs.at(-1), 'Some checks failed.')
+    assert.equal(report.result, false)
+    assert.equal(ctx.cli(['doctor']).status, 1)
+
+    process.env.CRONLY_PROC_DIR = join(ctx.dir, 'missing-proc')
+    report = await captureLogs(() => doctor())
+    assert.ok(!report.logs.some((line) => line.includes('cron daemon')))
+    assert.equal(report.logs.at(-1), 'All checks passed.')
+    assert.equal(report.result, true)
   })
 })
 
@@ -2417,6 +2893,28 @@ await testAsync('cron 실행: 백슬래시·%·작은따옴표가 섞인 스크�
   })
 })
 
+await testAsync('cron 실행: 스크립트 디렉터리로 들어가지 못한 오류도 작업 로그에 남김', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    mkdirSync(join(ctx.dir, 'app'))
+    mkdirSync(join(ctx.dir, 'logs'))
+    const file = ctx.createScript('app/job.sh', 'echo ran\n')
+    const logPath = join(ctx.dir, 'logs', 'job.log')
+    const [block] = parseBlocks(buildBlock({ schedule: '@reboot', absolutePath: file, runtime: 'sh', logPath }))
+    const run = () => spawnSync('/bin/sh', ['-c', decodeCronCommand(block.command)], { cwd: homedir(), encoding: 'utf8' })
+
+    assert.equal(run().status, 0)
+    assert.equal(readFileSync(logPath, 'utf8'), 'ran\n')
+
+    // 배포 도중 디렉터리가 사라진 경우. 예전에는 오류가 cron 메일로만 가고 로그는 비어 있었다
+    rmSync(join(ctx.dir, 'app'), { recursive: true })
+    const failed = run()
+    assert.notEqual(failed.status, 0)
+    assert.equal(failed.stderr, '')
+    const log = readFileSync(logPath, 'utf8')
+    assert.ok(log.startsWith('ran\n') && log.slice(4).includes('cd'), log)
+  })
+})
+
 await testAsync('doctor: 실행 권한을 잃은 exec 스크립트와 런타임을 실패로 보고', async () => {
   await withMockCrontabEnv({}, async (ctx) => {
     const script = ctx.createScript('exec-job', '#!/bin/sh\necho ok\n')
@@ -2485,11 +2983,14 @@ test('통합 테스트 안전성: 최초 조회 실패 시 기존 crontab을 보
 })
 
 test('통합 테스트 안전성: 기존 crontab·빈 crontab·미등록 상태를 각각 정확히 복원', () => {
-  for (const original of ['# original\n0 0 * * * /bin/true\n', '', null]) {
+  // 마지막은 UTF-8이 아닌 crontab(EUC-KR 주석)으로, 바이트 그대로 되돌려야 한다
+  const legacy = Buffer.concat([Buffer.from('# '), Buffer.from([0xb9, 0xe9, 0xbe, 0xf7]), Buffer.from('\n0 0 * * * /bin/true\n')])
+  for (const original of ['# original\n0 0 * * * /bin/true\n', '', null, legacy]) {
     const result = runSandboxedIntegration({ original })
     assert.equal(result.status, 0, result.stderr + result.stdout)
     assert.match(result.stdout, /33개 통과, 0개 실패/)
-    assert.equal(result.state, original)
+    if (original === null) assert.equal(result.stateBytes, null)
+    else assert.ok(result.stateBytes.equals(Buffer.from(original)), `restored ${result.stateBytes.toString('hex')}`)
     assert.equal(result.mutations.includes('remove'), original === null)
   }
 })
@@ -2567,7 +3068,9 @@ await testAsync('crontab 잠금: 종료된 소유자와 오래된 빈 잠금만 
     writeFileSync(join(lockPath, `owner-${dead.pid}-abcd`), '')
     assert.equal(await withCrontabLock(async () => 'recovered', { lockPath, pollMs: 1 }), 'recovered')
     mkdirSync(lockPath)
-    await assert.rejects(() => withCrontabLock(async () => assert.fail('fresh lock acquired'), { lockPath, timeoutMs: 0 }), /Another Cronly/)
+    await assert.rejects(() => withCrontabLock(async () => assert.fail('fresh lock acquired'), { lockPath, timeoutMs: 0 }), {
+      message: 'Another Cronly command is updating scheduled jobs. Try again shortly.',
+    })
     const old = new Date(Date.now() - 60000)
     utimesSync(lockPath, old, old)
     assert.equal(await withCrontabLock(async () => 'empty recovered', { lockPath, pollMs: 1 }), 'empty recovered')
@@ -2581,21 +3084,77 @@ await testAsync('crontab 잠금: 살아 있는 소유자의 잠금을 시간 초
     mkdirSync(lockPath)
     const owner = join(lockPath, `owner-${process.pid}-abcd`)
     writeFileSync(owner, '')
-    await assert.rejects(() => withCrontabLock(async () => assert.fail('live lock acquired'), { lockPath, timeoutMs: 0 }), /Another Cronly/)
+    // 메시지만 보고 누가 잡고 있는지, 멈춘 잠금이면 무엇을 지우면 되는지 알 수 있어야 한다
+    await assert.rejects(() => withCrontabLock(async () => assert.fail('live lock acquired'), { lockPath, timeoutMs: 0 }), {
+      message: `Another Cronly command is updating scheduled jobs (process ${process.pid}). Try again shortly. `
+        + `If that process is neither cronly nor crontab, the lock is stale: delete ${lockPath} and try again.`,
+    })
     assert.equal(existsSync(owner), true)
     const dead = spawnSync(process.execPath, ['-e', ''])
     const childOwner = join(lockPath, `owner-${dead.pid}-abcd`)
     writeFileSync(childOwner, '')
-    reapAbandonedLock(lockPath)
+    assert.deepEqual(reapAbandonedLock(lockPath), [process.pid])
     assert.ok(existsSync(childOwner), 'live parent must retain a child marker until its close callback')
+  })
+})
+
+await testAsync('crontab 잠금: 신호를 보낼 수 없는 PID(EPERM)는 살아 있는 소유자로 보고 회수하지 않음', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const lockPath = join(ctx.dir, 'lock')
+    const dead = spawnSync(process.execPath, ['-e', ''])
+    mkdirSync(lockPath)
+    const owner = join(lockPath, `owner-${dead.pid}-abcd`)
+    writeFileSync(owner, '')
     const originalKill = process.kill
-    process.kill = () => { throw Object.assign(new Error('denied'), { code: 'EPERM' }) }
+    // 사용자 ID를 바꾼 crontab 자식이거나, 끝난 소유자의 PID를 다른 사용자의 프로세스가 다시 쓰는 경우
+    process.kill = () => { throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' }) }
     try {
-      assert.throws(() => reapAbandonedLock(lockPath), /denied/)
+      assert.deepEqual(reapAbandonedLock(lockPath), [dead.pid])
+      assert.equal(existsSync(owner), true)
+      await assert.rejects(
+        () => withCrontabLock(async () => assert.fail('lock acquired'), { lockPath, timeoutMs: 0 }),
+        (err) => err.message.includes(`(process ${dead.pid})`) && err.message.includes(`delete ${lockPath} and try again`)
+      )
+      process.kill = () => { throw Object.assign(new Error('unexpected kill failure'), { code: 'EINVAL' }) }
+      assert.throws(() => reapAbandonedLock(lockPath), /unexpected kill failure/)
       assert.equal(existsSync(owner), true)
     } finally {
       process.kill = originalKill
     }
+    // 실제로는 끝난 프로세스이므로 다음 명령이 회수한다
+    assert.equal(await withCrontabLock(async () => 'recovered', { lockPath, pollMs: 1 }), 'recovered')
+  })
+})
+
+await testAsync('crontab 잠금: 사용 중에 잠금이 지워지거나 다른 명령의 잠금으로 바뀌어도 결과를 잃지 않음', async () => {
+  await withMockCrontabEnv({}, async (ctx) => {
+    const lockPath = join(ctx.dir, 'lock')
+    // 안내에 따라 잠금을 직접 지운 경우: 해제할 것이 없어도 작업 결과는 그대로 돌려준다
+    assert.equal(await withCrontabLock(async (trackProcess) => {
+      const untrack = trackProcess(1)
+      rmSync(lockPath, { recursive: true })
+      untrack()
+      return 'written'
+    }, { lockPath }), 'written')
+    assert.equal(existsSync(lockPath), false)
+
+    // 지워진 자리에 다른 명령이 새 잠금을 잡은 경우: 남의 잠금은 건드리지 않는다
+    const successor = join(lockPath, `owner-${process.pid}-ffff`)
+    assert.equal(await withCrontabLock(async () => {
+      rmSync(lockPath, { recursive: true })
+      mkdirSync(lockPath)
+      writeFileSync(successor, '')
+      return 'written'
+    }, { lockPath }), 'written')
+    assert.equal(existsSync(successor), true)
+    rmSync(lockPath, { recursive: true })
+
+    // 그 밖의 해제 오류는 숨기지 않는다
+    await assert.rejects(() => withCrontabLock(async () => {
+      const [marker] = readdirSync(lockPath)
+      rmSync(join(lockPath, marker))
+      mkdirSync(join(lockPath, marker))
+    }, { lockPath }), (err) => ['EPERM', 'EISDIR'].includes(err.code))
   })
 })
 
