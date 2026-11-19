@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - codex/release-2.0.0
   pull_request:
 
 jobs:
@@ -56,3 +57,15 @@ jobs:
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true
+
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Verify real Windows scheduled tasks
+        run: npm run test:windows

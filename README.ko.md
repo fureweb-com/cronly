@@ -7,13 +7,22 @@
 
 [English](./README.md) | **한국어** | [日本語](./README.ja.md) | [中文](./README.zh.md)
 
-`cronly add ./report.mjs --daily 08:00`으로 스크립트를 매일 아침 8시에 실행할 수 있어요. Cronly 2.0.0은 **Linux에서 systemd 사용자 타이머**, **macOS에서 launchd LaunchAgent**를 사용해요. Linux에서는 systemd 사용자 관리자가 실행 중이면 Cronie나 `crontab`을 설치할 필요가 없어요. 실행에 필요한 외부 npm 패키지도 없어요.
+`cronly add ./report.mjs --daily 08:00`으로 스크립트를 매일 아침 8시에 실행할 수 있어요. Cronly 2.0.0은 **Linux에서 systemd 사용자 타이머**, **macOS에서 launchd LaunchAgent**를 사용해요. Windows에서는 내장 **작업 스케줄러**를 사용해요. Linux에서는 systemd 사용자 관리자가 실행 중이면 Cronie나 `crontab`을 설치할 필요가 없어요. 실행에 필요한 외부 npm 패키지도 없어요.
 
 Linux에서 이미 작업을 예약해 두었다면 [1.x cron 작업을 systemd로 옮기는 방법](#migration)을 먼저 확인해 주세요.
 
+## 실행에 필요한 구성 요소
+
+| 플랫폼 | 시스템 요구사항 |
+| --- | --- |
+| Linux | systemd 사용자 관리자, `systemctl --user`, `/bin/sh` |
+| macOS | GUI 로그인 세션, `launchctl`, `/bin/sh`, 기존 작업 조회용 기본 `crontab` 명령 |
+| Windows | 작업 스케줄러 서비스, Windows PowerShell 5.1 |
+| cron 선택 시(Unix) | `crontab`, 실행 중인 cron 스케줄러, `/bin/sh` |
+
 ## 설치하고 첫 작업 등록하기
 
-Node.js 14.8.0 이상이 필요해요. 2.0.0 소스를 내려받았다면 프로젝트 디렉터리에서 설치한 다음, 출력되는 버전이 `2.0.0`인지 확인해 주세요. [2.0.0 소스 보기](https://github.com/fureweb-com/cronly/tree/00c8e814d6829474004158d192504052a3b110ec)
+Node.js 14.8.0 이상이 필요해요. 2.0.0 소스를 내려받았다면 프로젝트 디렉터리에서 설치한 다음, 출력되는 버전이 `2.0.0`인지 확인해 주세요. [2.0.0 소스 보기](https://github.com/fureweb-com/cronly/tree/codex/release-2.0.0)
 
 ```bash
 npm pack
@@ -99,6 +108,17 @@ CLI를 업그레이드해도 기존 작업은 사용자 crontab에 남아요. �
 
 작업마다 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`를 만들고 사용자의 GUI 로그인 세션에서 실행해요. `--reboot` 작업은 등록, 재등록, 로그인 시 실행돼요. 잠든 동안 놓친 달력 일정은 깨어날 때 한 번으로 합쳐 실행될 수 있어요. 달력 조합이 4,096개를 넘거나 `0 0 */2 * 1`처럼 날짜와 요일 조건을 launchd에서 정확히 표현할 수 없으면 등록 단계에서 알려 줘요.
 
+### Windows · 작업 스케줄러
+
+작업은 등록한 사용자가 로그인한 동안 실행돼요. `--reboot` 작업은 다음 로그인 때 실행돼요. JavaScript는 Node.js로, `.ps1`은 시스템 실행 정책을 따르는 Windows PowerShell로 실행하고, `.exe`는 직접 실행해요. 다른 인터프리터는 설치한 뒤 `--runtime`으로 지정할 수 있어요.
+
+```powershell
+cronly add .\report.ps1 --weekdays --at 09:00
+cronly list
+```
+
+날짜와 요일을 동시에 제한하는 cron 표현식이나 트리거가 48개를 넘는 일정은 Windows에서 등록할 수 없어요. 기본 로그 경로는 `%USERPROFILE%\.cronly\logs\<id>.log`예요.
+
 ### cron을 선택한 경우
 
 사용자 crontab과 이를 실행할 cron 스케줄러가 있는 환경에서 `CRONLY_BACKEND=cron`을 지정하세요. Cronly는 사용자 crontab에서 자신이 표시한 블록을 관리해요. Linux에서는 `doctor`가 프로세스 목록을 읽을 수 있을 때 cron 데몬도 확인해요.
@@ -108,8 +128,8 @@ Cronly는 자신의 crontab 변경을 한 번에 하나씩 처리해요. `cronta
 ## 스크립트 실행 환경과 로그
 
 - 각 작업은 **스크립트가 있는 디렉터리**에서 실행하므로 `./config.json` 같은 상대 경로는 그 위치를 기준으로 해석돼요.
-- **JavaScript 파일**(`.js`, `.mjs`, `.cjs`)은 `add`를 실행한 Node.js로 구동해요. `.sh` 파일은 첫 줄의 `#!` 선언에 지정된 인터프리터를 사용하고, 선언이 없으면 `/bin/sh`로 실행해요. 다른 인터프리터는 `--runtime python3`처럼 지정하고, 실행 권한이 있는 파일을 직접 실행할 때는 `--runtime exec`를 쓰세요. `#!/bin/bash -e`처럼 첫 줄에 인터프리터 옵션이 있으면 실행 권한을 부여해야 옵션까지 적용돼요.
-- 작업의 **PATH**에는 등록에 사용한 Node.js의 디렉터리, `/usr/bin`, `/bin`이 차례로 들어가요. 해당 Node.js를 제거했다면 새 버전으로 작업을 다시 등록하세요.
+- **JavaScript 파일**(`.js`, `.mjs`, `.cjs`)은 `add`를 실행한 Node.js로 구동해요. Unix에서 `.sh` 파일은 첫 줄의 `#!` 선언에 지정된 인터프리터를 사용하고, 선언이 없으면 `/bin/sh`로 실행해요. 다른 인터프리터는 `--runtime python3`처럼 지정하고, 실행 권한이 있는 파일을 직접 실행할 때는 `--runtime exec`를 쓰세요. `#!/bin/bash -e`처럼 첫 줄에 인터프리터 옵션이 있으면 실행 권한을 부여해야 옵션까지 적용돼요.
+- Unix 작업의 **PATH**에는 등록에 사용한 Node.js의 디렉터리, `/usr/bin`, `/bin`이 차례로 들어가요. 해당 Node.js를 제거했다면 새 버전으로 작업을 다시 등록하세요. Windows에서는 상속받은 PATH 맨 앞에 Node.js 디렉터리를 추가해요.
 - 등록할 때 **로그 경로**를 출력해요. 표준 출력과 오류는 모두 `~/.cronly/logs/<id>.log`에 이어 써요. 등록 시 `CRONLY_HOME`을 지정하면 `$CRONLY_HOME/logs/`에 저장해요. 로그 로테이션은 직접 설정해야 해요.
 
 ## 작업 조회와 삭제
@@ -117,7 +137,7 @@ Cronly는 자신의 crontab 변경을 한 번에 하나씩 처리해요. `cronta
 | 명령 | 동작 |
 | --- | --- |
 | `cronly list` | 작업 ID, 일정, 경로, 런타임을 확인해요. |
-| `cronly print` | 관리 중인 systemd 유닛, LaunchAgent plist 또는 crontab 블록 원문을 출력해요. |
+| `cronly print` | 관리 중인 systemd 유닛, LaunchAgent plist, Windows 작업 XML 또는 crontab 블록 원문을 출력해요. |
 | `cronly doctor` | 스케줄러 상태, 스크립트와 런타임 권한, 로그 경로를 점검해요. 문제가 있으면 종료 코드 1을 반환해요. |
 | `cronly remove ./report.mjs` | 이 파일의 예약을 삭제해요. |
 | `cronly remove --id 9f9d9373` | `list`에서 확인한 ID로 예약을 삭제해요. |
@@ -141,7 +161,7 @@ npm test
 npm run test:coverage
 ```
 
-실제 스케줄러를 사용하는 통합 테스트도 있어요. Linux 사용자 세션에서는 `npm run test:systemd`, macOS GUI 세션에서는 `npm run test:launchd`를 실행하세요. cron 통합 테스트는 테스트용 계정의 crontab에서 `npm run test:integration`으로 실행해요.
+실제 스케줄러를 사용하는 통합 테스트도 있어요. Linux 사용자 세션에서는 `npm run test:systemd`, macOS GUI 세션에서는 `npm run test:launchd`를 실행하세요. cron 통합 테스트는 테스트용 계정의 crontab에서 `npm run test:integration`으로 실행해요. Windows 로그인 세션에서는 `npm run test:windows`로 작업 등록과 예약 실행을 검증해요.
 
 ## 라이선스
 

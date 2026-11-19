@@ -7,13 +7,22 @@
 
 [English](./README.md) | [한국어](./README.ko.md) | **日本語** | [中文](./README.zh.md)
 
-`cronly add ./report.mjs --daily 08:00` で、スクリプトを毎朝8時に実行できます。Cronly 2.0.0 は **Linux では systemd のユーザータイマー**、**macOS では launchd の LaunchAgent** を使います。Linux では systemd のユーザーマネージャーが動いていれば、Cronie や `crontab` をインストールする必要はありません。実行時に依存する npm パッケージもありません。
+`cronly add ./report.mjs --daily 08:00` で、スクリプトを毎朝8時に実行できます。Cronly 2.0.0 は **Linux では systemd のユーザータイマー**、**macOS では launchd の LaunchAgent** を使います。Windows では標準の **タスク スケジューラ** を使います。Linux では systemd のユーザーマネージャーが動いていれば、Cronie や `crontab` をインストールする必要はありません。実行時に依存する npm パッケージもありません。
 
 すでに Linux でジョブを登録している場合は、[1.x の cron ジョブを systemd に移行する手順](#migration)を確認してください。
 
+## 実行環境
+
+| プラットフォーム | 必要なシステム機能 |
+| --- | --- |
+| Linux | systemd ユーザーマネージャー、`systemctl --user`、`/bin/sh` |
+| macOS | GUI ログインセッション、`launchctl`、`/bin/sh`、旧ジョブの確認に使う標準の `crontab` |
+| Windows | タスク スケジューラ サービス、Windows PowerShell 5.1 |
+| cron を選ぶ場合（Unix） | `crontab`、稼働中の cron スケジューラー、`/bin/sh` |
+
 ## インストールと最初のジョブ
 
-Node.js 14.8.0 以降が必要です。2.0.0 のソースからインストールするには、プロジェクトディレクトリで次のコマンドを実行し、バージョンが `2.0.0` と表示されることを確認してください。 [2.0.0 のソース](https://github.com/fureweb-com/cronly/tree/00c8e814d6829474004158d192504052a3b110ec)
+Node.js 14.8.0 以降が必要です。2.0.0 のソースからインストールするには、プロジェクトディレクトリで次のコマンドを実行し、バージョンが `2.0.0` と表示されることを確認してください。 [2.0.0 のソース](https://github.com/fureweb-com/cronly/tree/codex/release-2.0.0)
 
 ```bash
 npm pack
@@ -99,6 +108,17 @@ CLI をアップグレードしても、登録済みのジョブはユーザー�
 
 ジョブごとに `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` を作成し、ユーザーの GUI ログインセッションで実行します。`--reboot` は登録時、再登録時、ログイン時に実行されます。スリープ中に逃したカレンダーの予定は、復帰時の1回にまとめられる場合があります。カレンダーの組み合わせが4,096個を超える場合や、`0 0 */2 * 1` のように日付と曜日の条件を launchd で正確に表せない場合は、登録時にエラーになります。
 
+### Windows · タスク スケジューラ
+
+タスクは登録したユーザーのログイン中に実行されます。`--reboot` は次回のログイン時に実行されます。JavaScript は Node.js、`.ps1` はシステムの実行ポリシーに従う Windows PowerShell で起動し、`.exe` は直接実行します。別のインタープリターはインストール後に `--runtime` で指定できます。
+
+```powershell
+cronly add .\report.ps1 --weekdays --at 09:00
+cronly list
+```
+
+日付と曜日の両方を制限する cron 式や、48 個を超えるトリガーを必要とする予定は登録できません。既定のログは `%USERPROFILE%\.cronly\logs\<id>.log` に追記します。
+
 ### cron を選ぶ場合
 
 ユーザーの crontab とそれを実行するスケジューラーがある環境で `CRONLY_BACKEND=cron` を指定します。Cronly はユーザーの crontab のうち、自身のマーカーで囲んだブロックを管理します。Linux では `doctor` がプロセス一覧を参照できる場合、cron デーモンも確認します。
@@ -108,8 +128,8 @@ Cronly による crontab の変更は順番に処理されます。`crontab -e` 
 ## 実行環境とログ
 
 - **スクリプトのあるディレクトリ**で実行するので、`./config.json` などの相対パスはそこを基準に解決されます。
-- **JavaScript ファイル**（`.js`、`.mjs`、`.cjs`）は `add` を実行した Node.js を使います。`.sh` は先頭の shebang（例：`#!/bin/bash`）に従い、指定がなければ `/bin/sh` で実行します。ほかのインタープリターは `--runtime python3` のように指定し、実行権限のあるファイルを直接起動するには `--runtime exec` を使います。 `#!/bin/bash -e` のような shebang のオプションも適用するには、スクリプトに実行権限を付けてください。
-- ジョブの **PATH** は登録時に使った Node.js のディレクトリ、`/usr/bin`、`/bin` の順です。その Node.js を削除した場合は、新しいバージョンでジョブを再登録してください。
+- **JavaScript ファイル**（`.js`、`.mjs`、`.cjs`）は `add` を実行した Node.js を使います。Unix の `.sh` は先頭の shebang（例：`#!/bin/bash`）に従い、指定がなければ `/bin/sh` で実行します。ほかのインタープリターは `--runtime python3` のように指定し、実行権限のあるファイルを直接起動するには `--runtime exec` を使います。 `#!/bin/bash -e` のような shebang のオプションも適用するには、スクリプトに実行権限を付けてください。
+- Unix のジョブの **PATH** は登録時に使った Node.js のディレクトリ、`/usr/bin`、`/bin` の順です。その Node.js を削除した場合は、新しいバージョンでジョブを再登録してください。 Windows では継承した PATH の先頭に Node.js のディレクトリを追加します。
 - 登録時に **ログのパス** を表示します。標準出力と標準エラーは `~/.cronly/logs/<id>.log` に追記されます。登録時に `CRONLY_HOME` を設定すると、保存先は `$CRONLY_HOME/logs/` になります。ログローテーションは別途設定してください。
 
 ## ジョブの確認と削除
@@ -117,7 +137,7 @@ Cronly による crontab の変更は順番に処理されます。`crontab -e` 
 | コマンド | 動作 |
 | --- | --- |
 | `cronly list` | ジョブの ID、スケジュール、パス、ランタイムを表示します。 |
-| `cronly print` | 管理中の systemd ユニット、LaunchAgent の plist、または crontab ブロックの内容を表示します。 |
+| `cronly print` | 管理中の systemd ユニット、LaunchAgent の plist、Windows タスクの XML、または crontab ブロックの内容を表示します。 |
 | `cronly doctor` | スケジューラーの状態、スクリプトとランタイムの権限、ログのパスを確認します。問題があれば終了コード 1 を返します。 |
 | `cronly remove ./report.mjs` | このファイルの登録を削除します。 |
 | `cronly remove --id 9f9d9373` | `list` で確認した ID の登録を削除します。 |
@@ -141,7 +161,7 @@ npm test
 npm run test:coverage
 ```
 
-結合テストは実際のスケジューラーを使います。Linux のユーザーセッションでは `npm run test:systemd`、macOS の GUI セッションでは `npm run test:launchd`、cron の検証にはテスト用ユーザーの crontab で `npm run test:integration` を実行してください。
+結合テストは実際のスケジューラーを使います。Linux のユーザーセッションでは `npm run test:systemd`、macOS の GUI セッションでは `npm run test:launchd`、cron の検証にはテスト用ユーザーの crontab で `npm run test:integration` を実行してください。 Windows ログインセッションでは `npm run test:windows` で登録とスケジュール実行を確認します。
 
 ## ライセンス
 

@@ -1,3 +1,4 @@
+import { runWindowsTests } from './windows.mjs'
 import { runSystemdTests } from './systemd.mjs'
 import { runLaunchdTests } from './launchd.mjs'
 import assert from 'assert/strict'
@@ -3220,6 +3221,7 @@ await testAsync('crontab 잠금: 부모가 강제 종료되어도 살아 있는 
   })
 })
 
+await runWindowsTests({ test, testAsync, captureLogs, withPatchedVersion })
 await runSystemdTests({ test, testAsync, captureLogs, withPatchedVersion })
 await runLaunchdTests({ test, testAsync, captureLogs, withPatchedVersion })
 

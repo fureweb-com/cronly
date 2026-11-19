@@ -7,13 +7,22 @@
 
 **English** | [한국어](./README.ko.md) | [日本語](./README.ja.md) | [中文](./README.zh.md)
 
-Schedule a script with `cronly add ./report.mjs --daily 08:00`. Cronly 2.0.0 uses **systemd user timers on Linux** and **launchd LaunchAgents on macOS**. On Linux, a running systemd user manager is enough to schedule jobs without Cronie or `crontab`. Cronly has zero npm runtime dependencies.
+Schedule a script with `cronly add ./report.mjs --daily 08:00`. Cronly 2.0.0 uses **systemd user timers on Linux** and **launchd LaunchAgents on macOS**. Windows uses its built-in **Task Scheduler**. On Linux, a running systemd user manager is enough to schedule jobs without Cronie or `crontab`. Cronly has zero npm runtime dependencies.
 
 Upgrading a Linux machine with existing jobs? [Move your 1.x cron jobs to systemd](#migration).
 
+## Runtime requirements
+
+| Platform | Required system components |
+| --- | --- |
+| Linux | systemd user manager, `systemctl --user`, and `/bin/sh` |
+| macOS | GUI login session, `launchctl`, `/bin/sh`, and the system `crontab` utility to check for older jobs |
+| Windows | Task Scheduler service and Windows PowerShell 5.1 |
+| Optional cron (Unix) | `crontab`, an active cron scheduler, and `/bin/sh` |
+
 ## Install and schedule your first job
 
-Cronly requires Node.js 14.8.0 or later. To install from a checkout of the 2.0.0 source, run these commands in the project directory. The version should be `2.0.0`. Download the [2.0.0 source](https://github.com/fureweb-com/cronly/tree/00c8e814d6829474004158d192504052a3b110ec).
+Cronly requires Node.js 14.8.0 or later. To install from a checkout of the 2.0.0 source, run these commands in the project directory. The version should be `2.0.0`. Download the [2.0.0 source](https://github.com/fureweb-com/cronly/tree/codex/release-2.0.0).
 
 ```bash
 npm pack
@@ -99,6 +108,17 @@ A `--reboot` job first runs the **next time the user manager starts**. On a serv
 
 Each job has a `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` file and runs in the user’s GUI login session. A `--reboot` job runs on registration, re-registration and login. launchd can combine calendar events missed during sleep into one run on wake. Cronly rejects schedules that exceed 4,096 launchd calendar combinations or require a day/weekday condition that launchd cannot represent, such as `0 0 */2 * 1`.
 
+### Windows · Task Scheduler
+
+Cronly registers tasks for the current user. The user must be signed in for tasks to run. `--reboot` runs at the next login. JavaScript uses Node.js, `.ps1` uses Windows PowerShell with the system execution policy, and `.exe` runs directly. Select another installed executable with `--runtime`.
+
+```powershell
+cronly add .\report.ps1 --weekdays --at 09:00
+cronly list
+```
+
+Windows rejects cron expressions that restrict both day of month and weekday, and schedules that need more than 48 native triggers. Task output is appended to `%USERPROFILE%\.cronly\logs\<id>.log` by default.
+
 ### Optional cron backend
 
 Use `CRONLY_BACKEND=cron` with a working user crontab and cron scheduler. Cronly edits its marked blocks in the user crontab. On Linux, `doctor` also checks for a cron daemon when it can inspect the process list.
@@ -108,8 +128,8 @@ Cronly serializes its own changes to the crontab. If you also use `crontab -e`, 
 ## Scripts and logs
 
 - Each job starts in the **script’s directory**, so relative paths like `./config.json` resolve there.
-- **JavaScript files** ending in `.js`, `.mjs` or `.cjs` use the Node.js binary that ran `add`. A `.sh` file follows its shebang (for example `#!/bin/bash`) or uses `/bin/sh` if the file has no shebang. Use `--runtime python3` for another interpreter, or `--runtime exec` to run an executable file directly. For a shebang such as `#!/bin/bash -e`, make the script executable to preserve the interpreter options.
-- The job’s **PATH** starts with the registering Node.js binary’s directory followed by `/usr/bin:/bin`. If you remove that Node.js installation, re-register its jobs with the new version.
+- **JavaScript files** ending in `.js`, `.mjs` or `.cjs` use the Node.js binary that ran `add`. On Unix, a `.sh` file follows its shebang (for example `#!/bin/bash`) or uses `/bin/sh` if the file has no shebang. Use `--runtime python3` for another interpreter, or `--runtime exec` to run an executable file directly. For a shebang such as `#!/bin/bash -e`, make the script executable to preserve the interpreter options.
+- On Unix, the job’s **PATH** starts with the registering Node.js binary’s directory followed by `/usr/bin:/bin`. If you remove that Node.js installation, re-register its jobs with the new version. On Windows, Cronly prepends the Node.js directory to the inherited PATH.
 - On registration, Cronly prints the **log path**. Both stdout and stderr append to `~/.cronly/logs/<id>.log`. Set `CRONLY_HOME` when adding a job to use `$CRONLY_HOME/logs/`. Log rotation is up to the operator.
 
 ## Inspect and remove jobs
@@ -117,7 +137,7 @@ Cronly serializes its own changes to the crontab. If you also use `crontab -e`, 
 | Command | What it does |
 | --- | --- |
 | `cronly list` | Show IDs, schedules, paths and runtimes. |
-| `cronly print` | Print the managed unit files, LaunchAgent plists or crontab blocks. |
+| `cronly print` | Print the managed unit files, LaunchAgent plists, Windows task XML or crontab blocks. |
 | `cronly doctor` | Check scheduler state, script and runtime permissions, and log paths. A failed check sets exit code 1. |
 | `cronly remove ./report.mjs` | Remove the registration for this file. |
 | `cronly remove --id 9f9d9373` | Remove a registration using the ID from `list`. |
@@ -141,7 +161,7 @@ npm test
 npm run test:coverage
 ```
 
-The integration commands use real schedulers. Run `npm run test:systemd` in a Linux user session, `npm run test:launchd` in a macOS GUI session, or `npm run test:integration` with a test user’s crontab.
+The integration commands use real schedulers. Run `npm run test:systemd` in a Linux user session, `npm run test:launchd` in a macOS GUI session, or `npm run test:integration` with a test user’s crontab. Run `npm run test:windows` in a signed-in Windows session to verify registration and an actual scheduled run.
 
 ## License
 

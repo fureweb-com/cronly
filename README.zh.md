@@ -7,13 +7,22 @@
 
 [English](./README.md) | [한국어](./README.ko.md) | [日本語](./README.ja.md) | **中文**
 
-运行 `cronly add ./report.mjs --daily 08:00`，即可让脚本在每天早上 8 点执行。Cronly 2.0.0 在 **Linux 上使用 systemd 用户定时器**，在 **macOS 上使用 launchd LaunchAgent**。Linux 的 systemd 用户管理器运行时，无需安装 Cronie 或 `crontab`。Cronly 也没有 npm 运行时依赖。
+运行 `cronly add ./report.mjs --daily 08:00`，即可让脚本在每天早上 8 点执行。Cronly 2.0.0 在 **Linux 上使用 systemd 用户定时器**，在 **macOS 上使用 launchd LaunchAgent**。Windows 使用内置的 **任务计划程序**。Linux 的 systemd 用户管理器运行时，无需安装 Cronie 或 `crontab`。Cronly 也没有 npm 运行时依赖。
 
 如果 Linux 上已经有定时任务，请先查看[如何将 1.x 的 cron 任务迁移到 systemd](#migration)。
 
+## 运行条件
+
+| 平台 | 所需系统组件 |
+| --- | --- |
+| Linux | systemd 用户管理器、`systemctl --user`、`/bin/sh` |
+| macOS | 图形登录会话、`launchctl`、`/bin/sh`，以及检查旧任务所用的系统 `crontab` 命令 |
+| Windows | 任务计划程序服务、Windows PowerShell 5.1 |
+| 可选 cron（Unix） | `crontab`、运行中的 cron 调度器、`/bin/sh` |
+
 ## 安装并注册第一个任务
 
-需要 Node.js 14.8.0 或更高版本。从 2.0.0 源码安装时，在项目目录中运行以下命令，确认显示的版本为 `2.0.0`。 [查看 2.0.0 源码](https://github.com/fureweb-com/cronly/tree/00c8e814d6829474004158d192504052a3b110ec)
+需要 Node.js 14.8.0 或更高版本。从 2.0.0 源码安装时，在项目目录中运行以下命令，确认显示的版本为 `2.0.0`。 [查看 2.0.0 源码](https://github.com/fureweb-com/cronly/tree/codex/release-2.0.0)
 
 ```bash
 npm pack
@@ -99,6 +108,17 @@ Cronly 为每个任务创建 `cronly-<id>.service` 和 `cronly-<id>.timer`。默
 
 每个任务对应一个 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` 文件，在用户的图形登录会话中运行。`--reboot` 任务在注册、重新注册和登录时运行。睡眠期间错过的日历计划可能在唤醒时合并执行一次。日历组合超过 4,096 个，或日期与星期的组合条件无法由 launchd 准确表达（例如 `0 0 */2 * 1`）时，Cronly 会在注册时报错。
 
+### Windows · 任务计划程序
+
+任务在注册用户登录期间运行。`--reboot` 在下次登录时执行。JavaScript 使用 Node.js，`.ps1` 使用遵循系统执行策略的 Windows PowerShell，`.exe` 直接执行。其他已安装的解释器可以通过 `--runtime` 指定。
+
+```powershell
+cronly add .\report.ps1 --weekdays --at 09:00
+cronly list
+```
+
+同时限制日期和星期的 cron 表达式，以及需要超过 48 个触发器的计划，均无法注册。日志默认追加到 `%USERPROFILE%\.cronly\logs\<id>.log`。
+
 ### 可选的 cron 后端
 
 如果系统有用户 crontab 和执行它的 cron 调度器，可设置 `CRONLY_BACKEND=cron`。Cronly 管理用户 crontab 中带有自身标记的任务块。在 Linux 上，如果能读取进程列表，`doctor` 也会检查 cron 守护进程。
@@ -108,8 +128,8 @@ Cronly 会依次处理自己对 crontab 的更改。如果也在用 `crontab -e`
 ## 脚本环境与日志
 
 - 每个任务都从**脚本所在目录**启动，`./config.json` 等相对路径从该目录解析。
-- **JavaScript 文件**（`.js`、`.mjs` 和 `.cjs`）使用执行 `add` 的 Node.js。`.sh` 文件按首行的解释器声明（例如 `#!/bin/bash`）运行。没有声明时使用 `/bin/sh`。其他解释器可用 `--runtime python3` 等方式指定。要直接启动具有执行权限的文件，请使用 `--runtime exec`。对于 `#!/bin/bash -e` 这样的声明，请为脚本添加执行权限，以保留解释器选项。
-- 任务的 **PATH** 依次包含注册时所用 Node.js 的目录、`/usr/bin` 和 `/bin`。如果移除了那个版本的 Node.js，请用新版本重新注册任务。
+- **JavaScript 文件**（`.js`、`.mjs` 和 `.cjs`）使用执行 `add` 的 Node.js。在 Unix 上，`.sh` 文件按首行的解释器声明（例如 `#!/bin/bash`）运行。没有声明时使用 `/bin/sh`。其他解释器可用 `--runtime python3` 等方式指定。要直接启动具有执行权限的文件，请使用 `--runtime exec`。对于 `#!/bin/bash -e` 这样的声明，请为脚本添加执行权限，以保留解释器选项。
+- Unix 任务的 **PATH** 依次包含注册时所用 Node.js 的目录、`/usr/bin` 和 `/bin`。如果移除了那个版本的 Node.js，请用新版本重新注册任务。 Windows 会在继承的 PATH 开头添加 Node.js 所在的目录。
 - 注册时会显示**日志路径**。标准输出和标准错误都会追加到 `~/.cronly/logs/<id>.log`。注册时设置 `CRONLY_HOME` 可将日志写入 `$CRONLY_HOME/logs/`。日志轮转需自行配置。
 
 ## 查看和删除任务
@@ -117,7 +137,7 @@ Cronly 会依次处理自己对 crontab 的更改。如果也在用 `crontab -e`
 | 命令 | 作用 |
 | --- | --- |
 | `cronly list` | 列出任务 ID、计划、路径和运行时。 |
-| `cronly print` | 输出受管理的 systemd 单元、LaunchAgent plist 或 crontab 任务块的原文。 |
+| `cronly print` | 输出受管理的 systemd 单元、LaunchAgent plist、Windows 任务 XML 或 crontab 任务块的原文。 |
 | `cronly doctor` | 检查调度器状态、脚本和运行时的权限，以及日志路径。检查失败时返回退出码 1。 |
 | `cronly remove ./report.mjs` | 删除这个文件的任务注册。 |
 | `cronly remove --id 9f9d9373` | 按 `list` 中显示的 ID 删除任务注册。 |
@@ -141,7 +161,7 @@ npm test
 npm run test:coverage
 ```
 
-集成测试使用真实的调度器。Linux 用户会话中运行 `npm run test:systemd`，macOS 图形会话中运行 `npm run test:launchd`。要测试 cron，请使用测试账户的 crontab 运行 `npm run test:integration`。
+集成测试使用真实的调度器。Linux 用户会话中运行 `npm run test:systemd`，macOS 图形会话中运行 `npm run test:launchd`。要测试 cron，请使用测试账户的 crontab 运行 `npm run test:integration`。 在 Windows 登录会话中运行 `npm run test:windows` 可验证注册和定时执行。
 
 ## 许可证
 

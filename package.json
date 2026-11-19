@@ -14,11 +14,12 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node test/test.mjs",
+    "test": "node test/run.mjs",
     "test:coverage": "c8 --100 --reporter=text --reporter=lcov node test/test.mjs",
     "test:integration": "node test/integration.mjs",
     "test:systemd": "node test/systemd-integration.mjs",
-    "test:launchd": "node test/launchd-integration.mjs"
+    "test:launchd": "node test/launchd-integration.mjs",
+    "test:windows": "node test/windows-integration.mjs"
   },
   "repository": {
     "type": "git",
