@@ -16,7 +16,7 @@ Linux에서 이미 작업을 예약해 두었다면 [1.x cron 작업을 systemd�
 | 플랫폼 | 시스템 요구사항 |
 | --- | --- |
 | Linux | systemd 사용자 관리자, `systemctl --user`, `/bin/sh` |
-| macOS | GUI 로그인 세션, `launchctl`, `/bin/sh`, 기존 작업 조회용 기본 `crontab` 명령 |
+| macOS | GUI 로그인 세션, `launchctl`, 기존 작업 조회용 기본 `crontab` 명령 |
 | Windows | 작업 스케줄러 서비스, Windows PowerShell 5.1 |
 | cron 선택 시(Unix) | `crontab`, 실행 중인 cron 스케줄러, `/bin/sh` |
 

@@ -16,7 +16,7 @@
 | 平台 | 所需系统组件 |
 | --- | --- |
 | Linux | systemd 用户管理器、`systemctl --user`、`/bin/sh` |
-| macOS | 图形登录会话、`launchctl`、`/bin/sh`，以及检查旧任务所用的系统 `crontab` 命令 |
+| macOS | 图形登录会话、`launchctl`，以及检查旧任务所用的系统 `crontab` 命令 |
 | Windows | 任务计划程序服务、Windows PowerShell 5.1 |
 | 可选 cron（Unix） | `crontab`、运行中的 cron 调度器、`/bin/sh` |
 

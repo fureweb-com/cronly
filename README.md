@@ -16,7 +16,7 @@ Upgrading a Linux machine with existing jobs? [Move your 1.x cron jobs to system
 | Platform | Required system components |
 | --- | --- |
 | Linux | systemd user manager, `systemctl --user`, and `/bin/sh` |
-| macOS | GUI login session, `launchctl`, `/bin/sh`, and the system `crontab` utility to check for older jobs |
+| macOS | GUI login session, `launchctl`, and the system `crontab` utility to check for older jobs |
 | Windows | Task Scheduler service and Windows PowerShell 5.1 |
 | Optional cron (Unix) | `crontab`, an active cron scheduler, and `/bin/sh` |
 

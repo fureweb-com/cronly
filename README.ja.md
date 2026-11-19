@@ -16,7 +16,7 @@
 | プラットフォーム | 必要なシステム機能 |
 | --- | --- |
 | Linux | systemd ユーザーマネージャー、`systemctl --user`、`/bin/sh` |
-| macOS | GUI ログインセッション、`launchctl`、`/bin/sh`、旧ジョブの確認に使う標準の `crontab` |
+| macOS | GUI ログインセッション、`launchctl`、旧ジョブの確認に使う標準の `crontab` |
 | Windows | タスク スケジューラ サービス、Windows PowerShell 5.1 |
 | cron を選ぶ場合（Unix） | `crontab`、稼働中の cron スケジューラー、`/bin/sh` |
 
