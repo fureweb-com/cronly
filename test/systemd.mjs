@@ -1,3 +1,4 @@
+import { checkNamedJobs } from './named-jobs.mjs'
 import assert from 'assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -41,6 +42,7 @@ async function sandbox(action) {
 }
 
 export async function runSystemdTests({ test, testAsync, captureLogs, withPatchedVersion }) {
+  await testAsync('systemd: independent named schedules', () => sandbox(ctx => checkNamedJobs(ctx.file, captureLogs)))
   test('systemd: 달력 일정의 월·날짜·요일 조합과 별칭', () => {
     const examples = [
       ['@reboot', 'OnStartupSec=0'],

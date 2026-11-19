@@ -47,6 +47,17 @@ cronly list
 
 要调整时间，再对同一文件运行一次 `cronly add` 即可。通过符号链接指向同一文件时，Cronly 也会更新已有的任务。
 
+## 命名计划
+
+同一脚本可以注册多个独立计划。名称区分大小写，在选定的调度器内唯一。以相同的文件和名称重新注册时只更新该计划。省略名称时会更新按路径注册的计划。如果一个路径对应多个任务，请通过 `--name` 或 `--id` 选择。
+
+```sh
+cronly add ./report.mjs --name weekday-report --weekdays --at 09:00
+cronly add ./report.mjs --name weekend-report --weekends --at 11:00
+cronly list
+cronly remove --name weekend-report
+```
+
 <a id="migration"></a>
 
 ## 将 Linux 上的 1.x cron 任务迁移到 systemd

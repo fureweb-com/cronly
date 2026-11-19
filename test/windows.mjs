@@ -1,3 +1,4 @@
+import { checkNamedJobs } from './named-jobs.mjs'
 import assert from 'assert/strict'
 import { spawnSync } from 'child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
@@ -46,6 +47,7 @@ export async function runWindowsTests({ test, testAsync, captureLogs, withPatche
       writeFileSync(file, "console.log(require('fs').readFileSync('input','utf8')); console.error('stderr'); process.exitCode=7")
       writeFileSync(join(dir, 'input'), 'from script cwd')
       write([])
+      await checkNamedJobs(file, captureLogs)
       assert.deepEqual((await captured(list)).logs, ['No managed Windows tasks.'])
       assert.deepEqual(windowsRuntime('tool.exe').args, [])
       assert.deepEqual(windowsRuntime('task.ps1').args, ['-NoProfile', '-NonInteractive', '-File', 'task.ps1'])
@@ -96,7 +98,7 @@ export async function runWindowsTests({ test, testAsync, captureLogs, withPatche
       write([entry, { ...entry, id: 'f00df00d', metadata: JSON.stringify({ ...job, id: 'f00df00d' }) }])
       await assert.rejects(register, /Multiple Windows tasks/)
       for (const override of [{ source: 'other' }, { metadata: 'null' }, ...[
-        { backend: 'cron' }, { id: 'different' }, { path: 'relative' }, { runtime: null }, { schedule: null },
+        { backend: 'cron' }, { name: 'incorrect' }, { id: 'different' }, { path: 'relative' }, { runtime: null }, { schedule: null },
       ].map(overrides => ({ metadata: JSON.stringify({ ...job, ...overrides }) }))]) {
         write([{ ...entry, ...override }])
         assert.match((await captured(list)).logs[0], /Cannot manage Windows task/)

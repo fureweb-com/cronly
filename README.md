@@ -47,6 +47,17 @@ For a script at `/home/lee/jobs/report.mjs`, the Linux listing looks like this.
 
 To change the time, run `cronly add` again for the same file. Cronly also recognizes paths that point to the same file through a symlink.
 
+## Named schedules
+
+One script can have multiple independent schedules. Names are case-sensitive and unique within the selected scheduler. Adding the same script and name updates only that schedule. Adding it without a name updates its path-based registration. If a path matches several jobs, choose one with `--name` or `--id`.
+
+```sh
+cronly add ./report.mjs --name weekday-report --weekdays --at 09:00
+cronly add ./report.mjs --name weekend-report --weekends --at 11:00
+cronly list
+cronly remove --name weekend-report
+```
+
 <a id="migration"></a>
 
 ## Move 1.x Linux jobs to systemd

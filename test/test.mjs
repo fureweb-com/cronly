@@ -1,3 +1,4 @@
+import { checkNamedJobs } from './named-jobs.mjs'
 import { runWindowsTests } from './windows.mjs'
 import { runSystemdTests } from './systemd.mjs'
 import { runLaunchdTests } from './launchd.mjs'
@@ -2315,7 +2316,7 @@ await testAsync('list: 엔트리 출력', async () => {
 })
 
 await testAsync('remove: 인자 없이 호출하면 거부', async () => {
-  await assert.rejects(() => remove(undefined, {}), /file path or --id/)
+  await assert.rejects(() => remove(undefined, {}), /file path, --id or --name/)
 })
 
 await testAsync('remove: 파일과 --id를 함께 주면 어느 쪽도 지우지 않고 거부', async () => {
@@ -2325,10 +2326,10 @@ await testAsync('remove: 파일과 --id를 함께 주면 어느 쪽도 지우지
     await captureLogs(async () => { await add(a, { schedule: '0 1 * * *' }); await add(b, { schedule: '0 2 * * *' }) })
     const before = ctx.readState()
     // 예전에는 --id가 조용히 이겨서, 붙여 넣은 인자가 나뉘면 의도하지 않은 작업이 지워졌다
-    await assert.rejects(() => remove(b, { id: makeId(a) }), /either a file path or --id, not both/)
+    await assert.rejects(() => remove(b, { id: makeId(a) }), /exactly one file path, --id or --name/)
     const result = ctx.cli(['remove', '--id', makeId(a), 'copy'])
     assert.equal(result.status, 1)
-    assert.match(result.stderr, /either a file path or --id, not both/)
+    assert.match(result.stderr, /exactly one file path, --id or --name/)
     assert.equal(ctx.readState(), before)
   })
 })
@@ -3220,6 +3221,19 @@ await testAsync('crontab 잠금: 부모가 강제 종료되어도 살아 있는 
     }
   })
 })
+
+await testAsync('cron: independent named and path-based schedules', () => withMockCrontabEnv({}, async ctx => {
+  const file = ctx.createScript('names.sh', 'echo ok')
+  await checkNamedJobs(file, captureLogs)
+  await captureLogs(() => add(file, { name: 'taken', schedule: '@daily' }))
+  const other = ctx.createScript('other.sh', '')
+  await assert.rejects(() => add(other, { name: 'taken', schedule: '@daily' }), /already in use/)
+  await assert.rejects(() => add(file, { name: 'bad name', schedule: '@daily' }), /1–64/)
+  assert.throws(() => makeId(file, 42), /1–64/)
+  const occupied = buildBlock({ absolutePath: other, schedule: '@daily', runtime: 'sh' }).replaceAll(makeId(other), makeId(file, 'collision'))
+  ctx.setState(occupied + '\n')
+  await assert.rejects(() => add(file, { name: 'collision', schedule: '@daily' }), /another registration/)
+}))
 
 await runWindowsTests({ test, testAsync, captureLogs, withPatchedVersion })
 await runSystemdTests({ test, testAsync, captureLogs, withPatchedVersion })

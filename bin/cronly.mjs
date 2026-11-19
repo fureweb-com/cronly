@@ -66,9 +66,9 @@ const KNOWN_FLAGS = {
   add: new Set([
     'schedule', 'daily', 'every-hours', 'every-minutes',
     'weekly', 'days', 'weekdays', 'weekends', 'reboot',
-    'at', 'runtime', 'lang', 'help', 'version',
+    'at', 'runtime', 'name', 'lang', 'help', 'version',
   ]),
-  remove: new Set(['id', 'lang', 'help', 'version']),
+  remove: new Set(['id', 'name', 'lang', 'help', 'version']),
   list: new Set(['lang', 'help', 'version']),
   print: new Set(['lang', 'help', 'version']),
   doctor: new Set(['lang', 'help', 'version']),
@@ -122,7 +122,7 @@ try {
         console.error(t(`schedule.${result.error.code}`, result.error))
         process.exit(1)
       }
-      await add(args[0], { schedule: result.cron, runtime: flags.runtime })
+      await add(args[0], { schedule: result.cron, runtime: flags.runtime, name: flags.name })
       break
     }
     case 'list':
@@ -135,7 +135,7 @@ try {
       rejectUnknownFlags('remove', flags)
       rejectBadValues(flags)
       rejectExtraArgs('remove', args)
-      await remove(args[0], { id: flags.id })
+      await remove(args[0], { id: flags.id, name: flags.name })
       break
     case 'print':
       rejectUnknownFlags('print', flags)

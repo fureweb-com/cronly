@@ -47,6 +47,17 @@ cronly list
 
 時刻を変更するには、同じファイルに対してもう一度 `cronly add` を実行します。シンボリックリンク経由でも、同じファイルを指していれば既存のジョブを更新します。
 
+## 名前付きの予定
+
+同じスクリプトに複数の予定を登録できます。名前は大文字と小文字を区別し、選択したスケジューラー内で一意です。同じファイルと名前で再登録するとその予定が更新されます。名前を省略すると従来のパスによる登録が更新されます。一つのパスに複数のジョブがある場合は `--name` または `--id` で選択してください。
+
+```sh
+cronly add ./report.mjs --name weekday-report --weekdays --at 09:00
+cronly add ./report.mjs --name weekend-report --weekends --at 11:00
+cronly list
+cronly remove --name weekend-report
+```
+
 <a id="migration"></a>
 
 ## Linux の 1.x cron ジョブを systemd に移行する

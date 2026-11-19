@@ -47,6 +47,17 @@ cronly list
 
 실행 시간을 바꿀 때는 같은 파일에 `cronly add`를 다시 실행하세요. 심볼릭 링크로 같은 파일을 가리켜도 기존 일정을 갱신해요.
 
+## 이름으로 일정 관리하기
+
+같은 스크립트에 여러 일정을 등록할 수 있어요. 작업 이름은 대소문자를 구분하며 선택한 스케줄러 안에서 고유해요. 같은 파일과 이름으로 다시 등록하면 해당 일정만 갱신돼요. 이름을 생략하면 기존처럼 파일 경로로 등록한 일정을 갱신해요. 경로에 여러 작업이 있다면 `--name` 또는 `--id`로 하나를 선택하세요.
+
+```sh
+cronly add ./report.mjs --name weekday-report --weekdays --at 09:00
+cronly add ./report.mjs --name weekend-report --weekends --at 11:00
+cronly list
+cronly remove --name weekend-report
+```
+
 <a id="migration"></a>
 
 ## Linux에서 1.x cron 작업을 systemd로 옮기기

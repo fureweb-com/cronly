@@ -1,3 +1,4 @@
+import { checkNamedJobs } from './named-jobs.mjs'
 import assert from 'assert/strict'
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
@@ -10,6 +11,7 @@ import { buildBlock, makeId } from '../lib/entry.mjs'
 import { withLaunchdSandbox } from './helpers/launchd-sandbox.mjs'
 
 export async function runLaunchdTests({ test, testAsync, captureLogs, withPatchedVersion }) {
+  await testAsync('launchd: independent named schedules', () => withLaunchdSandbox(ctx => checkNamedJobs(ctx.script(), captureLogs)))
   test('scheduler: macOS 기본 launchd·Linux 기본 systemd·다른 환경 기본 cron 및 명시 선택·잘못된 값 검증', () => {
     assert.equal(getBackend('darwin', {}), 'launchd'); assert.equal(getBackend('linux', {}), 'systemd')
     assert.equal(getBackend('freebsd', {}), 'cron')
@@ -221,7 +223,7 @@ export async function runLaunchdTests({ test, testAsync, captureLogs, withPatche
       assert.ok(report.logs.includes(`  ⚠ This file is not named like a Cronly LaunchAgent, so it is skipped: ${copy}. Delete it if it is a leftover copy.`))
       assert.ok(!report.logs.some(l=>l.includes('--id')))
       const pasted=ctx.cli(['remove','--id',job.id,'copy'])
-      assert.equal(pasted.status,1);assert.match(pasted.stderr,/either a file path or --id, not both/)
+      assert.equal(pasted.status,1);assert.match(pasted.stderr,/exactly one file path, --id or --name/)
       assert.equal(readLaunchdJobs().length,1);assert.ok(ctx.state()[job.label],'the valid job is kept')
       rmSync(copy)
 
