@@ -10,8 +10,9 @@ import { buildBlock, makeId } from '../lib/entry.mjs'
 import { withLaunchdSandbox } from './helpers/launchd-sandbox.mjs'
 
 export async function runLaunchdTests({ test, testAsync, captureLogs, withPatchedVersion }) {
-  test('scheduler: macOS 기본 launchd·다른 환경 기본 cron 및 명시 선택·잘못된 값 검증', () => {
-    assert.equal(getBackend('darwin', {}), 'launchd'); assert.equal(getBackend('linux', {}), 'cron')
+  test('scheduler: macOS 기본 launchd·Linux 기본 systemd·다른 환경 기본 cron 및 명시 선택·잘못된 값 검증', () => {
+    assert.equal(getBackend('darwin', {}), 'launchd'); assert.equal(getBackend('linux', {}), 'systemd')
+    assert.equal(getBackend('freebsd', {}), 'cron')
     assert.equal(getBackend('darwin', { CRONLY_BACKEND: 'cron' }), 'cron')
     assert.throws(() => getBackend('linux', { CRONLY_BACKEND: 'invalid' }), /Unsupported scheduler/)
     assert.equal(getLaunchdDir({}), join(homedir(), 'Library', 'LaunchAgents'))

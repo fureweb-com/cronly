@@ -9,7 +9,7 @@
 
 스크립트를 쉽게 예약 실행해요 — cron 문법을 몰라도 돼요.
 매일 8시, 평일 9시, 4시간마다처럼 원하는 일정을 그대로 말하면 돼요.
-필요하면 cron expression도 직접 쓸 수 있어요. macOS는 launchd, Linux는 cron에 등록해요.
+필요하면 cron expression도 직접 쓸 수 있어요. macOS는 launchd, Linux는 systemd 사용자 타이머에 등록해요.
 
 [English](./README.md) | **[한국어](./README.ko.md)** | [日本語](./README.ja.md) | [中文](./README.zh.md)
 
@@ -69,7 +69,7 @@ cronly list
 ## 특징
 
 - 외부 npm dependency 0개 — Node.js 내장 모듈만 사용해요
-- 별도 DB, 서버, daemon이 없어요 — LaunchAgent 파일 또는 crontab을 기준으로 관리해요
+- 별도 DB, 서버, daemon이 없어요 — LaunchAgent, systemd 유닛 또는 crontab을 기준으로 관리해요
 - 관리 작업에 메타데이터를 붙여 다른 스케줄러 항목과 격리해요
 - 공백, single quote, `%` 경로를 macOS에서는 실행 인자로, cron에서는 안전한 셸 인용으로 처리해요
 - 작업은 스크립트가 있는 디렉터리에서 실행되고, 출력은 `~/.cronly/logs/<id>.log`에 남아요
@@ -96,13 +96,17 @@ npm link
 
 ## macOS와 Linux 스케줄러
 
-macOS는 기본으로 사용자별 `launchd` LaunchAgent를, Linux는 cron을 사용해요. 명령과 일정 플래그는 같아요. macOS는 작업마다 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`를 만들고 셸을 거치지 않고 실행 인자를 전달해요. 등록에 실패하면 이전 설정을 복원해요. Cronly는 자신이 기록한 내용과 정확히 같은 plist만 관리해요. 직접 수정한 파일은 건너뛰고 `list`, `print`, `doctor`에서 알려 주며, 다른 작업에는 영향을 주지 않아요. 해당 스크립트를 `cronly add`로 다시 등록하거나 `cronly remove --id <id>`로 삭제해 주세요.
+macOS는 기본으로 사용자별 `launchd` LaunchAgent를, Linux는 systemd 사용자 타이머를 사용해요. 명령과 일정 플래그는 같아요. macOS는 작업마다 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`를 만들고 셸을 거치지 않고 실행 인자를 전달해요. 등록에 실패하면 이전 설정을 복원해요. Cronly는 자신이 기록한 내용과 정확히 같은 plist만 관리해요. 직접 수정한 파일은 건너뛰고 `list`, `print`, `doctor`에서 알려 주며, 다른 작업에는 영향을 주지 않아요. 해당 스크립트를 `cronly add`로 다시 등록하거나 `cronly remove --id <id>`로 삭제해 주세요.
 
 LaunchAgent는 GUI 로그인 세션이 필요하며 해당 사용자가 로그인한 동안 실행돼요. macOS의 `--reboot`/`@reboot`는 등록·재등록·로그인 시 실행돼요. cron에서는 기존 부팅 시 실행 의미를 유지해요. 잠든 동안 놓친 달력 일정은 깨어날 때 한 번 실행될 수 있어요. 보호된 파일 접근에는 macOS 권한이 적용돼요.
 
-목록·범위·간격·별칭을 네이티브 달력 일정으로 변환하고 날짜·요일의 OR 의미도 보존해요. 다만 `0 0 */2 * 1`처럼 간격이 있는 날짜 와일드카드와 제한된 요일을 함께 쓰거나 그 반대인 조합은 정확하게 표현할 수 없어 거부해요. 달력 조합이 4,096개를 넘는 일정도 거부해요. 일정을 단순화하거나 `CRONLY_BACKEND=cron`을 명시해 주세요.
+macOS에서는 목록·범위·간격·별칭을 네이티브 달력 일정으로 변환하고 날짜·요일의 OR 의미도 보존해요. 다만 `0 0 */2 * 1`처럼 간격이 있는 날짜 와일드카드와 제한된 요일을 함께 쓰거나 그 반대인 조합은 정확하게 표현할 수 없어 거부해요. 달력 조합이 4,096개를 넘는 일정도 거부해요. 일정을 단순화하거나 `CRONLY_BACKEND=cron`을 명시해 주세요.
 
-기존 cron 작업을 자동으로 옮기지는 않아요. `list`, `print`, `doctor`에서 이전 작업을 안내하고, 같은 파일을 두 스케줄러에 중복 등록하지 못하게 막아요. 다음처럼 명시적으로 옮겨 주세요.
+Linux에서는 `systemctl --user`로 사용자 관리자에 연결할 수 있어야 해요. 서비스와 타이머는 `$XDG_CONFIG_HOME/systemd/user`(기본값 `~/.config/systemd/user`)에 저장해요. Cronie, crontab, 추가 npm 패키지 설치는 필요 없어요. 달력 일정은 등록 즉시 활성화하고, `--reboot` 작업은 다음 사용자 관리자 시작 시 처음 실행해요. 로그인 전과 로그아웃 후에도 실행하려면 `loginctl enable-linger "$USER"`로 linger를 켜 주세요. 이전 실행이 끝나기 전에 같은 타이머가 울리면 그 회차는 건너뛰어요.
+
+systemd 사용자 관리자가 없는 Linux에서는 `CRONLY_BACKEND=cron`으로 cron을 선택할 수 있어요.
+
+기존 cron 작업은 cron 패키지를 제거하기 전에 옮겨 주세요. `list`, `print`, `doctor`에서 이전 작업을 안내하고, 같은 파일을 두 스케줄러에 중복 등록하지 못하게 막아요. 다음처럼 명시적으로 옮겨 주세요.
 
 ```bash
 CRONLY_BACKEND=cron cronly list
@@ -110,7 +114,7 @@ CRONLY_BACKEND=cron cronly remove ./job.mjs
 cronly add ./job.mjs --daily 08:00
 ```
 
-`CRONLY_BACKEND=cron|launchd`로 스케줄러를 직접 선택할 수 있어요. `CRONLY_HOME`은 로그 위치를 바꾸며 기본 LaunchAgents 경로에는 영향을 주지 않아요. 테스트에서는 `CRONLY_LAUNCHD_DIR`로 plist를 격리할 수 있지만, `~/Library/LaunchAgents` 밖의 파일은 다음 로그인에 자동 등록되지 않아요.
+`CRONLY_BACKEND=systemd|launchd|cron`로 스케줄러를 직접 선택할 수 있어요. `CRONLY_HOME`은 로그 위치를 바꾸며 기본 LaunchAgents 경로에는 영향을 주지 않아요. 테스트에서는 `CRONLY_LAUNCHD_DIR`로 plist를 격리할 수 있지만, `~/Library/LaunchAgents` 밖의 파일은 다음 로그인에 자동 등록되지 않아요.
 
 ## 사용법
 
@@ -207,7 +211,7 @@ cronly remove --id a1b2c3d4
 cronly print
 ```
 
-관리 작업의 LaunchAgent plist 또는 cron 블록을 출력해요.
+관리 작업의 systemd 서비스와 타이머, LaunchAgent plist 또는 cron 블록을 출력해요.
 
 ### 환경 점검
 
@@ -215,7 +219,7 @@ cronly print
 cronly doctor
 ```
 
-Node.js, 스크립트·런타임 권한, 로그 쓰기 권한, 중복 등록을 점검해요. macOS에서는 로그인 세션·LaunchAgent 로드 여부·마지막 종료 상태를, cron에서는 crontab 접근을 확인해요. Linux에서는 cron 데몬(`cron`, `crond`, `fcron`)이 실행 중인지도 확인해요. 데몬이 없으면 crontab의 작업이 하나도 실행되지 않기 때문이에요. `/proc`에서 다른 사용자의 프로세스가 가려진 경우처럼 프로세스 목록으로 판단할 수 없으면 이 점검은 건너뛰고, `CRONLY_PROC_DIR`을 없는 디렉터리로 지정하면 직접 건너뛸 수 있어요. 이전 cron 작업도 이전할 수 있도록 안내해요. 문제가 있으면 종료 코드 1로 끝나요.
+Node.js, 스크립트·런타임 권한, 로그 쓰기 권한, 중복 등록을 점검해요. Linux에서는 사용자 관리자와 타이머 상태, 서비스 실행 결과를 확인해요. macOS에서는 로그인 세션·LaunchAgent 로드 여부·마지막 종료 상태를, cron에서는 crontab 접근을 확인해요. Linux의 cron 백엔드에서는 cron 데몬(`cron`, `crond`, `fcron`)이 실행 중인지도 확인해요. 데몬이 없으면 crontab의 작업이 하나도 실행되지 않기 때문이에요. `/proc`에서 다른 사용자의 프로세스가 가려진 경우처럼 프로세스 목록으로 판단할 수 없으면 이 점검은 건너뛰고, `CRONLY_PROC_DIR`을 없는 디렉터리로 지정하면 직접 건너뛸 수 있어요. 이전 cron 작업도 이전할 수 있도록 안내해요. 문제가 있으면 종료 코드 1로 끝나요.
 
 ### macOS 권한 창 (`CRONLY_BACKEND=cron`)
 
@@ -260,6 +264,8 @@ cron은 `add`에 넘긴 경로를 그대로 실행해서, `current -> releases/v
 npm test
 # macOS: real launchd daemon, isolated jobs and cleanup
 npm run test:launchd
+# Linux: real systemd user timer
+npm run test:systemd
 # Explicit legacy cron integration test
 npm run test:integration
 ```
@@ -271,7 +277,8 @@ npm run test:integration
 ├── lib/
 │   ├── cli.mjs                # argv 파싱
 │   ├── commands.mjs           # add/list/remove/print/doctor 구현
-│   ├── backend.mjs            # macOS launchd / Linux cron
+│   ├── backend.mjs            # macOS launchd / Linux systemd / legacy cron
+│   ├── systemd.mjs            # user services and timers
 │   ├── launchd.mjs            # LaunchAgent lifecycle
 │   ├── launchd-schedule.mjs   # native calendar conversion
 │   ├── job.mjs                # shared runtime / diagnostics
@@ -300,11 +307,11 @@ npm run test:integration
 
 ## 제약 사항
 
-- macOS 사용자별 LaunchAgent와 Linux user crontab을 사용해요
+- macOS 사용자별 LaunchAgent와 Linux 사용자별 systemd 타이머를 사용해요.
 - 같은 사용자의 Cronly `add`/`remove`는 순서대로 처리해요. `crontab -e`나 다른 도구의 동시 편집은 이 잠금으로 보호하지 못해요. 잠금을 잡은 명령이 강제 종료된 뒤 그 프로세스 ID를 다른 프로세스가 다시 쓰면, 다음 명령이 `/tmp` 아래 잠금 디렉터리와 프로세스 ID를 알려 줘요. 그 프로세스가 `cronly`도 `crontab`도 아니라면 그 디렉터리를 지워 주세요.
-- systemd timer, `/etc/cron.d`는 지원하지 않아요
+- 시스템 전체 유닛과 `/etc/cron.d`는 관리 범위 밖이에요.
 - 분산 환경은 지원하지 않아요 (단일 머신 전제예요)
-- overlap execution 방지는 포함하지 않아요
+- cron 작업은 실행 시간이 겹칠 수 있어요.
 - 로그는 로테이션 없이 계속 쌓여요
 - 999바이트를 넘는 cron 명령은 거부해요 (Vixie 계열 cron이 잘라 버리기 때문이에요)
 - 줄바꿈 또는 carriage return 문자가 포함된 경로는 지원하지 않아요

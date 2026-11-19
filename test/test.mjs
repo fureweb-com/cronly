@@ -1,3 +1,4 @@
+import { runSystemdTests } from './systemd.mjs'
 import { runLaunchdTests } from './launchd.mjs'
 import assert from 'assert/strict'
 import { withCrontabLock, reapAbandonedLock } from '../lib/lock.mjs'
@@ -59,6 +60,7 @@ const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'cronly.m
 const TEST_CRONLY_HOME = mkdtempSync(join(tmpdir(), 'cronly-home-'))
 process.env.CRONLY_HOME = TEST_CRONLY_HOME
 process.env.CRONLY_BACKEND = 'cron'
+process.env.XDG_CONFIG_HOME = join(TEST_CRONLY_HOME, 'config')
 process.env.CRONLY_LAUNCHD_DIR = join(TEST_CRONLY_HOME, 'agents')
 
 // doctor looks for a cron daemon in the process list. Give it a fixed list so
@@ -3218,6 +3220,7 @@ await testAsync('crontab 잠금: 부모가 강제 종료되어도 살아 있는 
   })
 })
 
+await runSystemdTests({ test, testAsync, captureLogs, withPatchedVersion })
 await runLaunchdTests({ test, testAsync, captureLogs, withPatchedVersion })
 
 // ── 결과 ────────────────────────────────────────────────────────────────────

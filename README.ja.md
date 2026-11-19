@@ -9,7 +9,7 @@
 
 スクリプトをかんたんに予約実行できます — cron 構文は不要です。
 毎日8時、平日9時、4時間ごとのように、やりたいことをそのまま指定できます。
-必要なら cron expression も直接使えます。macOS は launchd、Linux は cron に登録します。
+必要なら cron expression も直接使えます。macOS は launchd、Linux は systemd ユーザータイマーに登録します。
 
 [English](./README.md) | [한국어](./README.ko.md) | **[日本語](./README.ja.md)** | [中文](./README.zh.md)
 
@@ -69,7 +69,7 @@ cronly list
 ## 特徴
 
 - 外部 npm dependency ゼロ — Node.js 組み込みモジュールのみ使用
-- 専用 DB・サーバー・daemon は不要 — LaunchAgent ファイルまたは crontab が管理元です
+- 専用 DB・サーバー・daemon は不要 — LaunchAgent、systemd ユニットまたは crontab が管理元です
 - 管理エントリにメタデータコメントを付与し、既存の手動エントリと完全に隔離
 - スペース、シングルクォート、`%` を含むパスを安全にシェルクォート処理
 - ジョブはスクリプトのあるディレクトリで実行され、出力は `~/.cronly/logs/<id>.log` に残ります
@@ -96,13 +96,17 @@ npm link
 
 ## macOS と Linux のスケジューラー
 
-macOS はユーザー単位の `launchd` LaunchAgent、Linux は cron を既定で使用します。コマンドとスケジュールフラグは共通です。macOS はジョブごとに `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` を作成し、シェルを介さず引数を渡します。登録に失敗すると以前の設定を復元します。Cronly は、自身が書き出した内容と完全に一致する plist だけを管理します。手動で編集したファイルはスキップされ、`list`・`print`・`doctor` で報告されますが、他のジョブには影響しません。該当スクリプトを `cronly add` で再登録するか、`cronly remove --id <id>` で削除してください。
+macOS はユーザー単位の `launchd` LaunchAgent、Linux は systemd ユーザータイマーを既定で使用します。コマンドとスケジュールフラグは共通です。macOS はジョブごとに `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` を作成し、シェルを介さず引数を渡します。登録に失敗すると以前の設定を復元します。Cronly は、自身が書き出した内容と完全に一致する plist だけを管理します。手動で編集したファイルはスキップされ、`list`・`print`・`doctor` で報告されますが、他のジョブには影響しません。該当スクリプトを `cronly add` で再登録するか、`cronly remove --id <id>` で削除してください。
 
 LaunchAgent は GUI ログインセッションが必要で、そのユーザーのログイン中に動作します。macOS の `--reboot`/`@reboot` は登録・再登録・ログイン時に実行します。cron は起動時実行の意味を維持します。スリープ中のカレンダー予定は復帰時に1回実行される場合があります。保護されたファイルには macOS のアクセス権が適用されます。
 
-リスト・範囲・ステップ・別名をネイティブのカレンダーに変換し、日付と曜日の OR 条件も保持します。`0 0 */2 * 1` のようにステップ付きの日付ワイルドカードと限定曜日を組み合わせる条件や、その逆は正確に表現できないため拒否します。4,096 を超えるカレンダーの組み合わせも拒否します。予定を簡略化するか、`CRONLY_BACKEND=cron` を明示してください。
+macOS ではリスト・範囲・ステップ・別名をネイティブのカレンダーに変換し、日付と曜日の OR 条件も保持します。`0 0 */2 * 1` のようにステップ付きの日付ワイルドカードと限定曜日を組み合わせる条件や、その逆は正確に表現できないため拒否します。4,096 を超えるカレンダーの組み合わせも拒否します。予定を簡略化するか、`CRONLY_BACKEND=cron` を明示してください。
 
-以前の cron ジョブは自動移行しません。`list`、`print`、`doctor` で案内し、同じファイルの二重登録を防ぎます。移行例：
+Linux では `systemctl --user` がユーザーマネージャーに接続できる必要があります。サービスとタイマーは `$XDG_CONFIG_HOME/systemd/user`（既定は `~/.config/systemd/user`）に保存します。Cronie、crontab、追加の npm パッケージは不要です。カレンダータイマーは登録時に有効になり、`--reboot` は次回のユーザーマネージャー起動時に初めて実行されます。ログイン前やログアウト後にも実行するには `loginctl enable-linger "$USER"` を使います。前回のジョブが実行中の場合、その回はスキップします。
+
+systemd ユーザーマネージャーがない Linux では、`CRONLY_BACKEND=cron` で cron を選べます。
+
+既存の cron ジョブは cron パッケージを削除する前に移行してください。`list`、`print`、`doctor` で案内し、同じファイルの二重登録を防ぎます。移行例：
 
 ```bash
 CRONLY_BACKEND=cron cronly list
@@ -110,7 +114,7 @@ CRONLY_BACKEND=cron cronly remove ./job.mjs
 cronly add ./job.mjs --daily 08:00
 ```
 
-`CRONLY_BACKEND=cron|launchd` で明示的に選択できます。`CRONLY_HOME` はログの場所を変え、LaunchAgents の既定位置には影響しません。テストでは `CRONLY_LAUNCHD_DIR` で plist を隔離できますが、`~/Library/LaunchAgents` 外のファイルは次のログイン時に自動ロードされません。
+`CRONLY_BACKEND=systemd|launchd|cron` で明示的に選択できます。`CRONLY_HOME` はログの場所を変え、LaunchAgents の既定位置には影響しません。テストでは `CRONLY_LAUNCHD_DIR` で plist を隔離できますが、`~/Library/LaunchAgents` 外のファイルは次のログイン時に自動ロードされません。
 
 ## 使い方
 
@@ -207,7 +211,7 @@ cronly remove --id a1b2c3d4
 cronly print
 ```
 
-管理ジョブの LaunchAgent plist または cron ブロックを出力します。
+管理ジョブの systemd サービスとタイマー、LaunchAgent plist または cron ブロックを出力します。
 
 ### 環境チェック
 
@@ -215,7 +219,7 @@ cronly print
 cronly doctor
 ```
 
-Node.js、スクリプトとランタイムの権限、ログの書き込み権限、重複登録を点検します。macOS はログインセッション・LaunchAgent のロード状態・前回の終了状態、cron は crontab へのアクセスを確認します。Linux では cron デーモン（`cron`、`crond`、`fcron`）が実行中かどうかも確認します。デーモンがなければ crontab のジョブは一切実行されないためです。`/proc` で他ユーザーのプロセスが隠されている場合など、プロセス一覧から判断できないときはこの点検を省略します。`CRONLY_PROC_DIR` に存在しないディレクトリを指定すると、自分で省略することもできます。以前の cron ジョブは移行案内を表示します。問題がある場合は終了コード 1 になります。
+Node.js、スクリプトとランタイムの権限、ログの書き込み権限、重複登録を点検します。Linux ではユーザーマネージャー、タイマーの状態、サービスの実行結果を確認します。macOS はログインセッション・LaunchAgent のロード状態・前回の終了状態、cron は crontab へのアクセスを確認します。Linux の cron バックエンドでは cron デーモン（`cron`、`crond`、`fcron`）が実行中かどうかも確認します。デーモンがなければ crontab のジョブは一切実行されないためです。`/proc` で他ユーザーのプロセスが隠されている場合など、プロセス一覧から判断できないときはこの点検を省略します。`CRONLY_PROC_DIR` に存在しないディレクトリを指定すると、自分で省略することもできます。以前の cron ジョブは移行案内を表示します。問題がある場合は終了コード 1 になります。
 
 ### macOS の許可ダイアログ (`CRONLY_BACKEND=cron`)
 
@@ -260,6 +264,8 @@ cron は `add` に渡したパスをそのまま実行するため、`current ->
 npm test
 # macOS: real launchd daemon, isolated jobs and cleanup
 npm run test:launchd
+# Linux: real systemd user timer
+npm run test:systemd
 # Explicit legacy cron integration test
 npm run test:integration
 ```
@@ -271,7 +277,8 @@ npm run test:integration
 ├── lib/
 │   ├── cli.mjs                # argv パース
 │   ├── commands.mjs           # add/list/remove/print/doctor 実装
-│   ├── backend.mjs            # macOS launchd / Linux cron
+│   ├── backend.mjs            # macOS launchd / Linux systemd / legacy cron
+│   ├── systemd.mjs            # user services and timers
 │   ├── launchd.mjs            # LaunchAgent lifecycle
 │   ├── launchd-schedule.mjs   # native calendar conversion
 │   ├── job.mjs                # shared runtime / diagnostics
@@ -300,11 +307,11 @@ npm run test:integration
 
 ## 制約事項
 
-- macOS のユーザー単位 LaunchAgent と Linux の user crontab に対応
+- macOS のユーザー単位 LaunchAgent と Linux のユーザー単位 systemd タイマーに対応
 - 同じユーザーの Cronly `add`/`remove` は順番に処理します。`crontab -e` や他のツールによる同時編集は、このロックの対象外です。ロックを保持したままコマンドが強制終了され、そのプロセス ID を別のプロセスが再利用した場合、次のコマンドが `/tmp` 配下のロックディレクトリとプロセス ID を表示します。そのプロセスが `cronly` でも `crontab` でもなければ、そのディレクトリを削除してください。
-- systemd timer、`/etc/cron.d` 非対応
+- システム全体のユニットと `/etc/cron.d` は管理対象外
 - 分散環境非対応（単一マシン前提）
-- overlap execution 防止なし
+- cron ジョブは重複して実行されることがあります。
 - ログはローテーションなしで追記され続けます
 - 999 バイトを超える cron コマンドは拒否します（Vixie 系 cron が切り捨てるため）
 - 改行または carriage return を含むパスは非対応

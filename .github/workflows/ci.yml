@@ -35,6 +35,14 @@ jobs:
       - name: Run tests with coverage
         run: npm run test:coverage
 
+      - name: Verify real systemd user timers
+        if: runner.os == 'Linux'
+        run: |
+          sudo loginctl enable-linger "$(id -un)"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          sudo systemctl start "user@$(id -u).service"
+          npm run test:systemd
+
       - name: Verify real launchd jobs
         if: runner.os == 'macOS'
         run: npm run test:launchd

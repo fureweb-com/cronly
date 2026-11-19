@@ -9,7 +9,7 @@
 
 轻松调度脚本 — 无需 cron 语法。
 直接表达你的意思：每天 8 点、工作日 9 点、每 4 小时。
-也可直接使用 cron expression。macOS 使用 launchd，Linux 使用 cron。
+也可直接使用 cron expression。macOS 使用 launchd，Linux 使用 systemd 用户定时器。
 
 [English](./README.md) | [한국어](./README.ko.md) | [日本語](./README.ja.md) | **[中文](./README.zh.md)**
 
@@ -69,7 +69,7 @@ cronly list
 ## 特性
 
 - 零外部 npm 依赖 — 仅使用 Node.js 内置模块
-- 无需独立 DB、服务器或守护进程 — 以 LaunchAgent 文件或 crontab 为管理源
+- 无需独立 DB、服务器或守护进程 — 以 LaunchAgent、systemd 单元或 crontab 为管理源
 - 管理条目带有元数据注释，与现有手动条目完全隔离
 - 包含空格、单引号和 `%` 的路径会被安全地进行 shell 引用处理
 - 任务在脚本所在目录中运行，输出记录到 `~/.cronly/logs/<id>.log`
@@ -96,13 +96,17 @@ npm link
 
 ## macOS 和 Linux 调度器
 
-macOS 默认使用用户级 `launchd` LaunchAgent，Linux 使用 cron。命令和计划选项保持一致。macOS 为每个任务创建 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`，直接传递执行参数，不经过 shell。注册失败时恢复先前配置。Cronly 只管理与其写入内容完全一致的 plist：手动修改过的文件会被跳过，并在 `list`、`print`、`doctor` 中提示，不影响其他任务。请用 `cronly add` 重新注册对应脚本，或用 `cronly remove --id <id>` 删除。
+macOS 默认使用用户级 `launchd` LaunchAgent，Linux 使用 systemd 用户定时器。命令和计划选项保持一致。macOS 为每个任务创建 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`，直接传递执行参数，不经过 shell。注册失败时恢复先前配置。Cronly 只管理与其写入内容完全一致的 plist：手动修改过的文件会被跳过，并在 `list`、`print`、`doctor` 中提示，不影响其他任务。请用 `cronly add` 重新注册对应脚本，或用 `cronly remove --id <id>` 删除。
 
 LaunchAgent 需要 GUI 登录会话，并在该用户登录期间运行。macOS 的 `--reboot`/`@reboot` 在注册、重新注册及登录时执行；cron 保留开机执行语义。睡眠期间错过的日历任务可能在唤醒时合并执行一次。受保护文件仍受 macOS 权限限制。
 
-列表、范围、步长及别名会转换为原生日历计划，并保留日期和星期的 OR 语义。`0 0 */2 * 1` 这类带步长的日期通配符与受限星期组合，或相反组合，无法精确表达，因此拒绝注册。超过 4,096 个日历组合的计划也会被拒绝。请简化计划或明确指定 `CRONLY_BACKEND=cron`。
+在 macOS 上，列表、范围、步长及别名会转换为原生日历计划，并保留日期和星期的 OR 语义。`0 0 */2 * 1` 这类带步长的日期通配符与受限星期组合，或相反组合，无法精确表达，因此拒绝注册。超过 4,096 个日历组合的计划也会被拒绝。请简化计划或明确指定 `CRONLY_BACKEND=cron`。
 
-旧 cron 任务不会自动迁移。`list`、`print`、`doctor` 会提示旧任务，并阻止同一文件在两个调度器中重复注册。迁移示例：
+Linux 需要 `systemctl --user` 能连接到用户管理器。服务和定时器保存在 `$XDG_CONFIG_HOME/systemd/user`（默认为 `~/.config/systemd/user`）。无需安装 Cronie、crontab 或额外的 npm 包。日历定时器在注册后生效，`--reboot` 任务在用户管理器下次启动时首次执行。如需在登录前及退出后运行，请使用 `loginctl enable-linger "$USER"`。如果上一次任务仍在运行，定时器会跳过本次触发。
+
+在没有 systemd 用户管理器的 Linux 上，可以用 `CRONLY_BACKEND=cron` 选择 cron。
+
+请在卸载 cron 包之前迁移现有的 cron 任务。`list`、`print`、`doctor` 会提示旧任务，并阻止同一文件在两个调度器中重复注册。迁移示例：
 
 ```bash
 CRONLY_BACKEND=cron cronly list
@@ -110,7 +114,7 @@ CRONLY_BACKEND=cron cronly remove ./job.mjs
 cronly add ./job.mjs --daily 08:00
 ```
 
-使用 `CRONLY_BACKEND=cron|launchd` 可明确选择调度器。`CRONLY_HOME` 只改变日志位置，不影响默认 LaunchAgents 目录。测试可用 `CRONLY_LAUNCHD_DIR` 隔离 plist；位于 `~/Library/LaunchAgents` 之外的文件不会在下次登录时自动加载。
+使用 `CRONLY_BACKEND=systemd|launchd|cron` 可明确选择调度器。`CRONLY_HOME` 只改变日志位置，不影响默认 LaunchAgents 目录。测试可用 `CRONLY_LAUNCHD_DIR` 隔离 plist；位于 `~/Library/LaunchAgents` 之外的文件不会在下次登录时自动加载。
 
 ## 使用方法
 
@@ -207,7 +211,7 @@ cronly remove --id a1b2c3d4
 cronly print
 ```
 
-输出受管理任务的 LaunchAgent plist 或 cron 块。
+输出受管理任务的 systemd 服务和定时器、LaunchAgent plist 或 cron 块。
 
 ### 环境检查
 
@@ -215,7 +219,7 @@ cronly print
 cronly doctor
 ```
 
-检查 Node.js、脚本及运行时权限、日志写入权限和重复注册。macOS 还检查登录会话、LaunchAgent 加载状态及上次退出状态；cron 检查 crontab 访问；在 Linux 上还会检查 cron 守护进程（`cron`、`crond` 或 `fcron`）是否在运行，因为没有它 crontab 中的任务都不会执行。如果无法从进程列表判断（例如 `/proc` 隐藏了其他用户的进程），则跳过该检查；也可以把 `CRONLY_PROC_DIR` 设为不存在的目录来自行跳过。旧 cron 任务会显示迁移提示。任何检查失败均以退出码 1 结束。
+检查 Node.js、脚本及运行时权限、日志写入权限和重复注册。Linux 还会检查用户管理器、定时器状态及服务运行结果。macOS 还检查登录会话、LaunchAgent 加载状态及上次退出状态；cron 检查 crontab 访问；在 Linux 的 cron 后端上还会检查 cron 守护进程（`cron`、`crond` 或 `fcron`）是否在运行，因为没有它 crontab 中的任务都不会执行。如果无法从进程列表判断（例如 `/proc` 隐藏了其他用户的进程），则跳过该检查；也可以把 `CRONLY_PROC_DIR` 设为不存在的目录来自行跳过。旧 cron 任务会显示迁移提示。任何检查失败均以退出码 1 结束。
 
 ### macOS 权限对话框 (`CRONLY_BACKEND=cron`)
 
@@ -260,6 +264,8 @@ cron 会按 `add` 时传入的路径运行，因此在 `current -> releases/v2` 
 npm test
 # macOS: real launchd daemon, isolated jobs and cleanup
 npm run test:launchd
+# Linux: real systemd user timer
+npm run test:systemd
 # Explicit legacy cron integration test
 npm run test:integration
 ```
@@ -271,7 +277,8 @@ npm run test:integration
 ├── lib/
 │   ├── cli.mjs                # argv 解析
 │   ├── commands.mjs           # add/list/remove/print/doctor 实现
-│   ├── backend.mjs            # macOS launchd / Linux cron
+│   ├── backend.mjs            # macOS launchd / Linux systemd / legacy cron
+│   ├── systemd.mjs            # user services and timers
 │   ├── launchd.mjs            # LaunchAgent lifecycle
 │   ├── launchd-schedule.mjs   # native calendar conversion
 │   ├── job.mjs                # shared runtime / diagnostics
@@ -300,11 +307,11 @@ npm run test:integration
 
 ## 限制
 
-- 支持 macOS 用户级 LaunchAgent 和 Linux 用户 crontab
+- 支持 macOS 用户级 LaunchAgent 和 Linux 用户级 systemd 定时器
 - 同一用户的 Cronly `add`/`remove` 按顺序处理。通过 `crontab -e` 或其他工具进行的并发编辑不受此锁保护。如果命令在持有锁时被强制终止，且其进程 ID 之后被其他进程重用，下一条命令会提示 `/tmp` 下的锁目录和该进程 ID；如果该进程既不是 `cronly` 也不是 `crontab`，请删除该目录。
-- 不支持 systemd timer 和 `/etc/cron.d`
+- 不管理系统级单元或 `/etc/cron.d`
 - 不支持分布式环境（仅限单机）
-- 不包含 overlap execution 防止
+- cron 任务可能重叠执行。
 - 日志会持续追加，不做轮转
 - 拒绝超过 999 字节的 cron 命令（Vixie 系 cron 会将其截断）
 - 不支持包含换行或 carriage return 字符的路径

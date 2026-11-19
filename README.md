@@ -9,7 +9,7 @@
 
 Schedule scripts easily — no cron syntax needed.
 Say what you mean: every day at 8, weekdays at 9, every 4 hours.
-Cron expressions are still available when you need them. Cronly uses launchd on macOS and cron on Linux.
+Cron expressions are still available when you need them. Cronly uses launchd on macOS and systemd user timers on Linux.
 
 **[English](./README.md)** | [한국어](./README.ko.md) | [日本語](./README.ja.md) | [中文](./README.zh.md)
 
@@ -69,7 +69,7 @@ Managing crontab manually with `crontab -e` leads to common problems:
 ## Features
 
 - Zero external npm dependencies — only Node.js built-in modules
-- No separate DB, server, or daemon — native LaunchAgent files or crontab are the source of truth
+- No separate DB, server, or daemon — native LaunchAgents, systemd units or crontab are the source of truth
 - Managed jobs have metadata and are isolated from unrelated scheduler entries
 - Paths with spaces, single quotes, and `%` use native arguments on macOS and safe quoting for cron
 - Jobs run from the script's directory and log their output to `~/.cronly/logs/<id>.log`
@@ -96,13 +96,17 @@ After installing globally, run the CLI as `cronly`.
 
 ## macOS and Linux schedulers
 
-macOS uses a per-user `launchd` LaunchAgent by default; Linux uses cron. Commands and schedule flags stay the same. macOS stores each job in `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` and passes executable arguments directly, without a shell. Registration failures restore the previous configuration. Cronly manages a plist only while it is exactly what Cronly wrote: a file edited by hand is skipped and reported by `list`, `print`, and `doctor`, without affecting other jobs. Run `cronly add` for its script again, or remove it with `cronly remove --id <id>`.
+macOS uses a per-user `launchd` LaunchAgent by default; Linux uses per-user systemd timers. Commands and schedule flags stay the same. macOS stores each job in `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` and passes executable arguments directly, without a shell. Registration failures restore the previous configuration. Cronly manages a plist only while it is exactly what Cronly wrote: a file edited by hand is skipped and reported by `list`, `print`, and `doctor`, without affecting other jobs. Run `cronly add` for its script again, or remove it with `cronly remove --id <id>`.
 
 LaunchAgents require a GUI login session and run while that user is logged in. `--reboot`/`@reboot` runs on registration, re-registration, and login on macOS; cron retains its boot semantics. Calendar jobs missed during sleep can run once on wake. Protected files remain subject to macOS permissions.
 
-Lists, ranges, steps, and aliases are converted to native calendar intervals. Date/weekday OR semantics are preserved. A stepped wildcard date combined with a restricted weekday (or the reverse), such as `0 0 */2 * 1`, cannot be represented exactly and is rejected. Schedules exceeding 4,096 calendar combinations are also rejected. Simplify the schedule or explicitly choose `CRONLY_BACKEND=cron`.
+On macOS, lists, ranges, steps, and aliases are converted to native calendar intervals. Date/weekday OR semantics are preserved. On launchd, a stepped wildcard date combined with a restricted weekday (or the reverse), such as `0 0 */2 * 1`, cannot be represented exactly and is rejected. Schedules exceeding 4,096 calendar combinations are also rejected. Simplify the schedule or explicitly choose `CRONLY_BACKEND=cron`.
 
-Existing cron jobs are not automatically migrated. `list`, `print`, and `doctor` identify legacy cron jobs; adding the same script to both schedulers is blocked. Move a script explicitly:
+Linux needs a running systemd user manager (`systemctl --user`). Cronly writes a service and timer under `$XDG_CONFIG_HOME/systemd/user` (default `~/.config/systemd/user`). No Cronie, crontab or additional npm package is required. Calendar timers start on registration. `--reboot` first runs at the next user manager startup. To run from boot and after logout, enable lingering with `loginctl enable-linger "$USER"`. A timer skips a trigger while its service is still running.
+
+Without a systemd user manager, select the cron backend with `CRONLY_BACKEND=cron`.
+
+Migrate existing cron jobs before uninstalling your cron package. `list`, `print`, and `doctor` identify legacy cron jobs; adding the same script to both schedulers is blocked. Move a script explicitly:
 
 ```bash
 CRONLY_BACKEND=cron cronly list
@@ -110,7 +114,7 @@ CRONLY_BACKEND=cron cronly remove ./job.mjs
 cronly add ./job.mjs --daily 08:00
 ```
 
-`CRONLY_BACKEND=cron|launchd` selects a scheduler explicitly. `CRONLY_HOME` changes logs, not the normal LaunchAgents location. Tests can set `CRONLY_LAUNCHD_DIR` to isolate plist files; files outside `~/Library/LaunchAgents` are not automatically loaded on the next login.
+`CRONLY_BACKEND=systemd|launchd|cron` selects a scheduler explicitly. `CRONLY_HOME` changes logs, not the normal LaunchAgents location. Tests can set `CRONLY_LAUNCHD_DIR` to isolate plist files; files outside `~/Library/LaunchAgents` are not automatically loaded on the next login.
 
 ## Usage
 
@@ -207,7 +211,7 @@ cronly remove --id a1b2c3d4
 cronly print
 ```
 
-Outputs the LaunchAgent plist or cron block for managed jobs.
+Outputs the managed systemd service and timer, LaunchAgent plist, or cron block.
 
 ### Health check
 
@@ -215,7 +219,7 @@ Outputs the LaunchAgent plist or cron block for managed jobs.
 cronly doctor
 ```
 
-Checks Node.js, script/runtime permissions, writable logs, and duplicate registrations. On macOS it also checks the login session, loaded LaunchAgents, and the last exit status; cron checks crontab access instead and, on Linux, that a cron daemon (`cron`, `crond`, or `fcron`) is running, since nothing in a crontab runs without one. The daemon check is skipped when the process list cannot tell, for example when `/proc` hides other users' processes; set `CRONLY_PROC_DIR` to a missing directory to skip it yourself. Legacy cron jobs are reported for explicit migration. Any failed check exits with code 1.
+Checks Node.js, script/runtime permissions, writable logs, and duplicate registrations. On Linux, doctor checks the user manager, timer state, and service result. On macOS it also checks the login session, loaded LaunchAgents, and the last exit status; the optional cron backend checks crontab access and, on Linux, that a cron daemon (`cron`, `crond`, or `fcron`) is running, since nothing in a crontab runs without one. The daemon check is skipped when the process list cannot tell, for example when `/proc` hides other users' processes; set `CRONLY_PROC_DIR` to a missing directory to skip it yourself. Legacy cron jobs are reported for explicit migration. Any failed check exits with code 1.
 
 ### macOS permission dialog (`CRONLY_BACKEND=cron`)
 
@@ -260,6 +264,8 @@ Managed entries are wrapped in `# [cronly:begin]` / `# [cronly:end]` blocks, com
 npm test
 # macOS: real launchd daemon, isolated jobs and cleanup
 npm run test:launchd
+# Linux: real systemd user timer
+npm run test:systemd
 # Explicit legacy cron integration test
 npm run test:integration
 ```
@@ -271,7 +277,8 @@ npm run test:integration
 ├── lib/
 │   ├── cli.mjs                # argv parsing
 │   ├── commands.mjs           # add/list/remove/print/doctor
-│   ├── backend.mjs            # macOS launchd / Linux cron
+│   ├── backend.mjs            # macOS launchd / Linux systemd / legacy cron
+│   ├── systemd.mjs            # user services and timers
 │   ├── launchd.mjs            # LaunchAgent lifecycle
 │   ├── launchd-schedule.mjs   # native calendar conversion
 │   ├── job.mjs                # shared runtime / diagnostics
@@ -300,11 +307,11 @@ npm run test:integration
 
 ## Limitations
 
-- Per-user LaunchAgents on macOS; user crontab on Linux
+- Per-user LaunchAgents and systemd timers
 - Concurrent Cronly `add`/`remove` commands are serialized per user. Concurrent edits through `crontab -e` or other tools are outside this lock. If a command is killed while it holds the lock and another process later reuses its process ID, the next command reports the lock directory under `/tmp` and that process ID; delete the directory if that process is neither `cronly` nor `crontab`.
-- No systemd timer or `/etc/cron.d` support
+- System-wide units and `/etc/cron.d` are outside the user backend.
 - Single machine only (no distributed environments)
-- No overlap execution prevention
+- Cron jobs can overlap.
 - Logs are appended without rotation
 - Cron commands longer than 999 bytes are rejected (Vixie-based cron truncates them)
 - Paths containing newline or carriage return characters are not supported
