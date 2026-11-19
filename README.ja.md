@@ -177,7 +177,7 @@ tail -n 20 ~/.cronly/logs/9f9d9373.log
 
 ## 開発とテスト
 
-CI と同じカバレッジ検査には Node.js 22 を使います。
+CI と同じカバレッジ検査には最新の Node.js LTS 版を使います。
 
 ```bash
 npm ci

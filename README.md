@@ -177,7 +177,7 @@ Use `cronly --lang en --help` for the full CLI reference. The supported language
 
 ## Development
 
-Use Node.js 22 to run the same coverage check as CI.
+Use the latest Node.js LTS release to run the same coverage check as CI.
 
 ```bash
 npm ci

@@ -177,7 +177,7 @@ tail -n 20 ~/.cronly/logs/9f9d9373.log
 
 ## 开发与测试
 
-使用 Node.js 22 可以运行与 CI 相同的覆盖率检查。
+使用最新的 Node.js LTS 版本即可运行与 CI 相同的覆盖率检查。
 
 ```bash
 npm ci

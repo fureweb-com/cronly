@@ -177,7 +177,7 @@ tail -n 20 ~/.cronly/logs/9f9d9373.log
 
 ## 개발 및 테스트
 
-CI와 같은 커버리지 검사를 실행하려면 Node.js 22를 사용하세요.
+CI와 같은 커버리지 검사를 실행하려면 최신 Node.js LTS 버전을 사용하세요.
 
 ```bash
 npm ci
