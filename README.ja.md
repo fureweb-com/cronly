@@ -58,6 +58,17 @@ cronly list
 cronly remove --name weekend-report
 ```
 
+## すぐに実行してログを読む
+
+systemd、launchd、Windows の `run` は、登録済みジョブの単発実行をスケジューラーに要求し、要求が受理されると終了します。スクリプトの出力後にログを確認できます。任意の cron バックエンドでは CLI が登録時の作業ディレクトリ、ランタイム、PATH、出力設定でスクリプトを直接起動し、終了コードを返します。ほかの環境変数は現在のシェルから継承します。
+
+```sh
+cronly run --name weekday-report
+cronly logs --name weekday-report
+```
+
+どちらのコマンドもパス、`--name`、`--id` のいずれかでジョブを指定します。`logs` は標準出力と標準エラーを含むログファイル全体を標準出力に書き出します。
+
 <a id="migration"></a>
 
 ## Linux の 1.x cron ジョブを systemd に移行する
@@ -147,7 +158,9 @@ Cronly による crontab の変更は順番に処理されます。`crontab -e` 
 
 | コマンド | 動作 |
 | --- | --- |
-| `cronly list` | ジョブの ID、スケジュール、パス、ランタイムを表示します。 |
+| `cronly list` | ジョブの ID、名前、スケジュール、パス、ランタイムを表示します。 |
+| `cronly run --name weekday-report` | 登録済みジョブを一度実行します。 |
+| `cronly logs --name weekday-report` | ジョブのログを表示します。 |
 | `cronly print` | 管理中の systemd ユニット、LaunchAgent の plist、Windows タスクの XML、または crontab ブロックの内容を表示します。 |
 | `cronly doctor` | スケジューラーの状態、スクリプトとランタイムの権限、ログのパスを確認します。問題があれば終了コード 1 を返します。 |
 | `cronly remove ./report.mjs` | このファイルの登録を削除します。 |

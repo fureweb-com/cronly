@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { homedir, tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { getBackend } from '../lib/backend.mjs'
-import { add, doctor, list, print, remove } from '../lib/commands.mjs'
+import { add, doctor, list, print, remove, run } from '../lib/commands.mjs'
 import { schedulerLockPath } from '../lib/lock.mjs'
 import { windowsRuntime } from '../lib/windows.mjs'
 import { windowsAction, windowsTriggers } from '../lib/windows-task.mjs'
@@ -66,6 +66,8 @@ export async function runWindowsTests({ test, testAsync, captureLogs, withPatche
       await captured(register)
       const [entry] = read()
       const job = JSON.parse(entry.metadata)
+      assert.equal((await captured(() => run(file, {}))).result, 0)
+      assert.equal(readFileSync(state + '.last-run', 'utf8'), entry.id)
       assert.ok((await captured(list)).logs[0].includes(file))
       assert.match((await captured(print)).logs[0], /&amp;.*&lt;sample&gt;/)
       const runAction = data => {

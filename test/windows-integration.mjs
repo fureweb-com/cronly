@@ -51,18 +51,19 @@ try {
   registered = false
   assert.ok(!run('list').includes(file))
   const psFile = join(dir, 'hello world.ps1')
-  const psId = makeId(psFile)
+  const psName = 'ps-' + id
+  const psId = makeId(psFile, psName)
   const psLog = join(dir, 'logs', psId + '.log')
   writeFileSync(psFile, "Write-Output 'PowerShell works'")
-  run('add', psFile, '--reboot')
+  run('add', psFile, '--name', psName, '--reboot')
   try {
     assert.equal(existsSync(psLog), false)
-    execFileSync('schtasks.exe', ['/run', '/tn', nativeName(psId)])
+    run('run', '--name', psName)
     const deadline = Date.now() + 30000
     while (Date.now() < deadline && !(existsSync(psLog) && readFileSync(psLog, 'utf8').includes('PowerShell works'))) {
       await delay(250)
     }
-    assert.match(readFileSync(psLog, 'utf8'), /PowerShell works/)
+    assert.match(run('logs', '--name', psName), /PowerShell works/)
   } finally {
     run('remove', psFile)
   }

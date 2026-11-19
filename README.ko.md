@@ -58,6 +58,17 @@ cronly list
 cronly remove --name weekend-report
 ```
 
+## 즉시 실행하고 로그 확인하기
+
+systemd, launchd, Windows에서 `run`은 스케줄러에 등록된 작업의 1회 실행을 요청해요. 요청이 접수되면 명령이 종료돼요. 스크립트가 출력을 남긴 뒤 로그를 확인하세요. 선택형 cron 백엔드에서는 CLI가 등록된 작업 디렉터리·런타임·PATH·출력 설정으로 스크립트를 직접 실행하고 종료 코드를 반환해요. 그 밖의 환경 변수는 현재 셸에서 상속해요.
+
+```sh
+cronly run --name weekday-report
+cronly logs --name weekday-report
+```
+
+두 명령 모두 파일 경로, `--name`, `--id` 중 하나로 작업을 선택해요. `logs`는 스크립트의 표준 출력과 오류가 담긴 로그 파일 전체를 표준 출력으로 보내요.
+
 <a id="migration"></a>
 
 ## Linux에서 1.x cron 작업을 systemd로 옮기기
@@ -147,7 +158,9 @@ Cronly는 자신의 crontab 변경을 한 번에 하나씩 처리해요. `cronta
 
 | 명령 | 동작 |
 | --- | --- |
-| `cronly list` | 작업 ID, 일정, 경로, 런타임을 확인해요. |
+| `cronly list` | 작업 ID, 이름, 일정, 경로, 런타임을 확인해요. |
+| `cronly run --name weekday-report` | 등록된 작업을 한 번 실행해요. |
+| `cronly logs --name weekday-report` | 작업 로그를 출력해요. |
 | `cronly print` | 관리 중인 systemd 유닛, LaunchAgent plist, Windows 작업 XML 또는 crontab 블록 원문을 출력해요. |
 | `cronly doctor` | 스케줄러 상태, 스크립트와 런타임 권한, 로그 경로를 점검해요. 문제가 있으면 종료 코드 1을 반환해요. |
 | `cronly remove ./report.mjs` | 이 파일의 예약을 삭제해요. |

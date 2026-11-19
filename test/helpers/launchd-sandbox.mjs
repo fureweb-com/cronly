@@ -42,6 +42,8 @@ if (command === 'print') {
     if (process.env.LAUNCHD_TEST_BLOCK_TARGET) fs.mkdirSync(process.env.CRONLY_LAUNCHD_DIR + '/' + label + '.plist');
     fail('Could not find service');
   }
+  const plistPath = process.env.CRONLY_LAUNCHD_DIR + '/' + label + '.plist';
+  console.log('  path = ' + (process.env.LAUNCHD_TEST_PRINT_PATH || plistPath));
   console.log('state = waiting\\nlast exit code = ' + (process.env.LAUNCHD_TEST_EXIT || '0'));
 } else if (command === 'bootstrap') {
   const raw = fs.readFileSync(file, 'utf8');
@@ -50,6 +52,8 @@ if (command === 'print') {
   if (state[key]) fail('already loaded');
   state[key] = metadata; fs.writeFileSync(path,JSON.stringify(state));
   if (process.env.LAUNCHD_TEST_FAIL_AFTER) fail('failed after loading');
+} else if (command === 'kickstart') {
+  if (!state[label]) fail('Could not find service');
 } else if (command === 'bootout') {
   if (!state[label]) {
     if (process.env.LAUNCHD_TEST_BLOCK_TARGET) fs.mkdirSync(process.env.CRONLY_LAUNCHD_DIR + '/' + label + '.plist');

@@ -115,6 +115,14 @@ try {
     assert.equal(event.cwd, realpathSync(work)); assert.equal(event.path.split(':')[0], dirname(process.execPath))
     assert.ok(event.ancestors.some(ancestor => ancestor.command === '/sbin/launchd'))
   }
+  const startup = jobs.find(job => job.kind === 'startup')
+  const before = await cli('logs', '--id', startup.id)
+  await cli('run', startup.file)
+  const deadline = Date.now() + 20000
+  while (Date.now() < deadline && (await cli('logs', startup.file)) === before) {
+    await new Promise(resolve => setTimeout(resolve, 250))
+  }
+  assert.ok((await cli('logs', startup.file)).length > before.length)
   // Verify replacement against the real daemon as well as initial loading.
   await cli('add', jobs[2].file, '--every-hours', '1', '--runtime', 'exec')
   const updated = await run('/usr/bin/plutil', ['-convert', 'json', '-o', '-', join(agents, `${jobs[2].label}.plist`)])

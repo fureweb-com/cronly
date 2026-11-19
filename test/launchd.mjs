@@ -12,6 +12,25 @@ import { withLaunchdSandbox } from './helpers/launchd-sandbox.mjs'
 
 export async function runLaunchdTests({ test, testAsync, captureLogs, withPatchedVersion }) {
   await testAsync('launchd: independent named schedules', () => withLaunchdSandbox(ctx => checkNamedJobs(ctx.script(), captureLogs)))
+  await testAsync('launchd: kickstart a registered job and read its original log', () => withLaunchdSandbox(async ctx => {
+    const file = ctx.script()
+    await captureLogs(() => add(file, { schedule: '@daily', name: 'report' }))
+    assert.equal(ctx.cli(['run', '--name', 'report']).status, 0)
+    assert.match(ctx.calls(), /kickstart/)
+    const [job] = readLaunchdJobs()
+    writeFileSync(job.logPath, 'launchd output')
+    assert.equal(ctx.cli(['logs', '--id', job.id]).stdout, 'launchd output')
+    process.env.LAUNCHD_TEST_PRINT_PATH = join(ctx.dir, 'other.plist')
+    try {
+      assert.match(ctx.cli(['run', file]).stderr, /not loaded/)
+    } finally {
+      delete process.env.LAUNCHD_TEST_PRINT_PATH
+    }
+    ctx.setState({})
+    assert.match(ctx.cli(['run', file]).stderr, /not loaded/)
+    writeFileSync(job.plistPath, job.raw + 'edited')
+    assert.match(ctx.cli(['run', '--id', job.id]).stderr, /damaged registration/)
+  }))
   test('scheduler: macOS 기본 launchd·Linux 기본 systemd·다른 환경 기본 cron 및 명시 선택·잘못된 값 검증', () => {
     assert.equal(getBackend('darwin', {}), 'launchd'); assert.equal(getBackend('linux', {}), 'systemd')
     assert.equal(getBackend('freebsd', {}), 'cron')

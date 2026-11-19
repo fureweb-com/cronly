@@ -58,6 +58,17 @@ cronly list
 cronly remove --name weekend-report
 ```
 
+## Run once and read the log
+
+For systemd, launchd and Windows, `run` asks the scheduler to start the registered job once. It returns when the request is accepted. Check the log after the script has produced output. With the optional cron backend, the CLI runs the script locally with its registered working directory, runtime, PATH and output redirection, and returns its exit code. Other environment variables come from the invoking shell.
+
+```sh
+cronly run --name weekday-report
+cronly logs --name weekday-report
+```
+
+Use a file path, `--name` or `--id` with either command. `logs` streams the entire stored log to stdout, including both script output and errors.
+
 <a id="migration"></a>
 
 ## Move 1.x Linux jobs to systemd
@@ -147,7 +158,9 @@ Cronly serializes its own changes to the crontab. If you also use `crontab -e`, 
 
 | Command | What it does |
 | --- | --- |
-| `cronly list` | Show IDs, schedules, paths and runtimes. |
+| `cronly list` | Show IDs, names, schedules, paths and runtimes. |
+| `cronly run --name weekday-report` | Start the registered job once. |
+| `cronly logs --name weekday-report` | Print the job log. |
 | `cronly print` | Print the managed unit files, LaunchAgent plists, Windows task XML or crontab blocks. |
 | `cronly doctor` | Check scheduler state, script and runtime permissions, and log paths. A failed check sets exit code 1. |
 | `cronly remove ./report.mjs` | Remove the registration for this file. |

@@ -39,6 +39,7 @@ try {
         switch ($request.op) {
             'create' { $null = $folder.RegisterTask($name, $request.xml, 2, $sid, $null, 3, $null) }
             'update' { $null = $folder.RegisterTask($name, $request.xml, 4, $sid, $null, 3, $null) }
+            'run' { $null = $existing.Run($null) }
             'remove' { $folder.DeleteTask($name, 0) }
             default { throw 'Unknown Cronly task operation' }
         }

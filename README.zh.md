@@ -58,6 +58,17 @@ cronly list
 cronly remove --name weekend-report
 ```
 
+## 立即执行并查看日志
+
+在 systemd、launchd 和 Windows 上，`run` 请求调度器执行一次已注册的任务，请求获接收后命令即结束。待脚本写入输出后即可查看日志。使用可选的 cron 后端时，CLI 按注册时的工作目录、运行时、PATH 和输出重定向在本地运行脚本，并返回其退出码。其他环境变量继承自当前 shell。
+
+```sh
+cronly run --name weekday-report
+cronly logs --name weekday-report
+```
+
+两个命令都可用文件路径、`--name` 或 `--id` 选择任务。`logs` 将完整日志文件写入标准输出，其中包含脚本的标准输出和错误输出。
+
 <a id="migration"></a>
 
 ## 将 Linux 上的 1.x cron 任务迁移到 systemd
@@ -147,7 +158,9 @@ Cronly 会依次处理自己对 crontab 的更改。如果也在用 `crontab -e`
 
 | 命令 | 作用 |
 | --- | --- |
-| `cronly list` | 列出任务 ID、计划、路径和运行时。 |
+| `cronly list` | 列出任务 ID、名称、计划、路径和运行时。 |
+| `cronly run --name weekday-report` | 执行一次已注册的任务。 |
+| `cronly logs --name weekday-report` | 输出任务日志。 |
 | `cronly print` | 输出受管理的 systemd 单元、LaunchAgent plist、Windows 任务 XML 或 crontab 任务块的原文。 |
 | `cronly doctor` | 检查调度器状态、脚本和运行时的权限，以及日志路径。检查失败时返回退出码 1。 |
 | `cronly remove ./report.mjs` | 删除这个文件的任务注册。 |

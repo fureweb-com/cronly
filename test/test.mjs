@@ -3,6 +3,7 @@ import { runWindowsTests } from './windows.mjs'
 import { runSystemdTests } from './systemd.mjs'
 import { runLaunchdTests } from './launchd.mjs'
 import assert from 'assert/strict'
+import { Writable } from 'stream'
 import { withCrontabLock, reapAbandonedLock } from '../lib/lock.mjs'
 import { runSandboxedIntegration } from './helpers/integration-sandbox.mjs'
 import { decodeCronCommand } from './helpers/cron-command.mjs'
@@ -23,6 +24,7 @@ import {
 } from '../lib/entry.mjs'
 import {
   add,
+  logs as readLogs,
   doctor,
   findEntryIssues,
   getCronPath,
@@ -3221,6 +3223,46 @@ await testAsync('crontab 잠금: 부모가 강제 종료되어도 살아 있는 
     }
   })
 })
+
+await testAsync('cron: run and logs use registered settings and preserve exit codes', () => withMockCrontabEnv({}, async ctx => {
+  const file = ctx.createScript("job '& %\\*.sh", 'printf "stdout %s\\n" "$PWD"; echo stderr >&2; exit 7')
+  const added = ctx.cli(['add', file, '--name', 'report', '--daily', '09:00'])
+  assert.equal(added.status, 0, added.stderr)
+  const log = join(ctx.logDir, makeId(file, 'report') + '.log')
+  assert.match(ctx.cli(['logs', file]).stderr, /No log file yet/)
+  const result = ctx.cli(['run', '--name', 'report'], { CRONLY_HOME: join(ctx.dir, 'another-home') })
+  assert.equal(result.status, 7, result.stderr)
+  assert.match(ctx.cli(['logs', file]).stdout, /stdout .*\nstderr\n/)
+  writeFileSync(log, Buffer.alloc(256 * 1024, 97))
+  assert.equal(ctx.cli(['logs', '--name', 'report']).stdout.length, 256 * 1024)
+  let bytes = 0
+  const slowOutput = new Writable({
+    highWaterMark: 1,
+    write(chunk, encoding, done) { bytes += chunk.length; setImmediate(done) },
+  })
+  await readLogs(file, {}, slowOutput)
+  assert.equal(bytes, 256 * 1024)
+  rmSync(log)
+  mkdirSync(log)
+  assert.match(ctx.cli(['logs', file]).stderr, /EISDIR/)
+  const legacy = ctx.createScript('legacy.sh', '#!/bin/sh\nexit 3')
+  const oldBlock = buildBlock({ absolutePath: legacy, runtime: 'exec', schedule: '@daily' })
+  ctx.setState(oldBlock)
+  assert.equal(ctx.cli(['run', legacy]).status, 3)
+  assert.match(ctx.cli(['logs', legacy]).stderr, /no registered log/)
+  const before = parseBlocks(oldBlock)[0].command
+  ctx.setState(oldBlock.replace(before, "'/bin/sh' '" + legacy + "'"))
+  assert.equal(ctx.cli(['run', legacy]).status, 3)
+  ctx.setState(oldBlock.replace(before, 'echo changed layout'))
+  assert.match(ctx.cli(['run', legacy]).stderr, /cannot be run directly/)
+  ctx.setState(oldBlock.replace(before, ''))
+  assert.match(ctx.cli(['run', legacy]).stderr, /cannot be run directly/)
+  ctx.setState(oldBlock)
+  writeFileSync(legacy, '#!/bin/sh\nkill -TERM $$')
+  assert.match(ctx.cli(['run', legacy]).stderr, /SIGTERM/)
+  rmSync(legacy)
+  assert.match(ctx.cli(['run', legacy]).stderr, /ENOENT/)
+}))
 
 await testAsync('cron: independent named and path-based schedules', () => withMockCrontabEnv({}, async ctx => {
   const file = ctx.createScript('names.sh', 'echo ok')

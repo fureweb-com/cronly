@@ -25,6 +25,18 @@ try {
   const log = join(dir, 'logs', id + '.log')
   assert.equal(existsSync(log), false)
   assert.match(run('list'), new RegExp(id))
+  const name = 'manual-' + id
+  const namedLog = join(dir, 'logs', makeId(file, name) + '.log')
+  run('add', file, '--name', name, '--reboot')
+  try {
+    run('run', '--name', name)
+    const deadline = Date.now() + 10000
+    while (Date.now() < deadline && !(existsSync(namedLog) && readFileSync(namedLog, 'utf8').includes('timer fired'))) await delay(100)
+    assert.equal(run('logs', '--name', name).trim(), dir + '\ntimer fired')
+    assert.equal(existsSync(log), false)
+  } finally {
+    run('remove', '--name', name)
+  }
   run('add', file, '--every-minutes', '1')
   assert.match(run('print'), /OnCalendar=\*-\*-\* \*:\*:00/)
   const deadline = Date.now() + 75000

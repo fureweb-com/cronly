@@ -3,7 +3,7 @@ import assert from 'assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { add, doctor, list, print, remove } from '../lib/commands.mjs'
+import { add, doctor, list, print, remove, run } from '../lib/commands.mjs'
 import { makeId, buildBlock } from '../lib/entry.mjs'
 import { readSystemdEntries, timerDirectives } from '../lib/systemd.mjs'
 
@@ -43,6 +43,15 @@ async function sandbox(action) {
 
 export async function runSystemdTests({ test, testAsync, captureLogs, withPatchedVersion }) {
   await testAsync('systemd: independent named schedules', () => sandbox(ctx => checkNamedJobs(ctx.file, captureLogs)))
+  await testAsync('systemd: immediate service start leaves the timer alone', () => sandbox(async ctx => {
+    await captureLogs(() => add(ctx.file, { schedule: '@reboot' }))
+    const before = ctx.state()
+    await captureLogs(() => run(ctx.file, {}))
+    assert.deepEqual(ctx.state(), before)
+    assert.equal(JSON.parse(readFileSync(join(ctx.dir, 'state.json')))[`cronly-${ctx.id}.service`].active, true)
+    ctx.properties('LoadState=not-found')
+    await assert.rejects(() => run(ctx.file, {}), /not loaded/)
+  }))
   test('systemd: 달력 일정의 월·날짜·요일 조합과 별칭', () => {
     const examples = [
       ['@reboot', 'OnStartupSec=0'],

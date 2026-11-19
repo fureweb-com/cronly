@@ -8,6 +8,10 @@ if (req.op === 'list') {
 } else {
   const before = entries.find(entry => entry.id === req.id)
   if (req.op === 'create' ? before : before.xml !== req.previousXml) throw new Error('Concurrent change')
+  if (req.op === 'run') {
+    fs.writeFileSync(file + '.last-run', before.id)
+    process.exit(0)
+  }
   if (req.op !== 'create') entries.splice(entries.indexOf(before), 1)
   if (req.op !== 'remove') {
     const metadata = req.xml.match(/<Documentation>(.+)<\/Documentation>/)[1]

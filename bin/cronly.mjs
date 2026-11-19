@@ -4,7 +4,7 @@ import { createRequire } from 'module'
 import { BOOLEAN_FLAGS, parseArgv } from '../lib/cli.mjs'
 import { normalizeLocale, detectLocale, setLocale, t, getUsage } from '../lib/i18n.mjs'
 import { resolveSchedule } from '../lib/schedule.mjs'
-import { add, list, remove, print, doctor } from '../lib/commands.mjs'
+import { add, list, remove, print, doctor, run, logs } from '../lib/commands.mjs'
 
 const { command, args, flags } = parseArgv(process.argv)
 
@@ -62,19 +62,22 @@ if (!command) {
 
 // ── unknown flag detection ──────────────────────────────────────────────────
 
+const targetFlags = new Set(['id', 'name', 'lang', 'help', 'version'])
 const KNOWN_FLAGS = {
   add: new Set([
     'schedule', 'daily', 'every-hours', 'every-minutes',
     'weekly', 'days', 'weekdays', 'weekends', 'reboot',
     'at', 'runtime', 'name', 'lang', 'help', 'version',
   ]),
-  remove: new Set(['id', 'name', 'lang', 'help', 'version']),
+  remove: targetFlags,
+  run: targetFlags,
+  logs: targetFlags,
   list: new Set(['lang', 'help', 'version']),
   print: new Set(['lang', 'help', 'version']),
   doctor: new Set(['lang', 'help', 'version']),
 }
 
-const EXPECTED_ARGS = { add: 1, remove: 1, list: 0, print: 0, doctor: 0 }
+const EXPECTED_ARGS = { add: 1, remove: 1, run: 1, logs: 1, list: 0, print: 0, doctor: 0 }
 
 function rejectUnknownFlags(cmd, flags) {
   const known = KNOWN_FLAGS[cmd]
@@ -132,11 +135,17 @@ try {
       await list()
       break
     case 'remove':
-      rejectUnknownFlags('remove', flags)
+    case 'run':
+    case 'logs': {
+      rejectUnknownFlags(command, flags)
       rejectBadValues(flags)
-      rejectExtraArgs('remove', args)
-      await remove(args[0], { id: flags.id, name: flags.name })
+      rejectExtraArgs(command, args)
+      const target = { id: flags.id, name: flags.name }
+      if (command === 'run') process.exitCode = await run(args[0], target)
+      else if (command === 'logs') await logs(args[0], target)
+      else await remove(args[0], target)
       break
+    }
     case 'print':
       rejectUnknownFlags('print', flags)
       rejectBadValues(flags)
