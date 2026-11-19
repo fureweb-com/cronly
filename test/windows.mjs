@@ -79,6 +79,12 @@ export async function runWindowsTests({ test, testAsync, captureLogs, withPatche
       await captured(() => add(alias, { schedule: '@weekly' }))
       assert.deepEqual(read().map(e => e.id), [entry.id])
       assert.equal((await captured(doctor)).result, true)
+      // The task retains its original ID after an update through a symlink.
+      // Removing a deleted alias by its registered path must still find it.
+      rmSync(alias)
+      await captured(() => remove(alias, {}))
+      assert.deepEqual(read(), [])
+      symlinkSync(file, alias)
       for (const result of [0, 0x41301, 0x41303, 7]) {
         write([{ ...entry, result }])
         assert.equal((await captured(doctor)).result, result !== 7)
