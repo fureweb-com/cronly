@@ -7,7 +7,7 @@
 
 [English](./README.md) | **한국어** | [日本語](./README.ja.md) | [中文](./README.zh.md)
 
-`cronly add ./report.mjs --daily 08:00`으로 스크립트를 매일 아침 8시에 실행할 수 있어요. Cronly 2.0.0은 **Linux에서 systemd 사용자 타이머**, **macOS에서 launchd LaunchAgent**를 사용해요. Windows에서는 내장 **작업 스케줄러**를 사용해요. Linux에서는 systemd 사용자 관리자가 실행 중이면 Cronie나 `crontab`을 설치할 필요가 없어요. 실행에 필요한 외부 npm 패키지도 없어요.
+Cronly는 **Linux의 systemd 사용자 타이머**, **macOS의 launchd LaunchAgent**, **Windows의 내장 작업 스케줄러**로 스크립트를 예약 실행해요. Linux에서는 systemd 사용자 관리자가 실행 중이면 Cronie나 `crontab`을 설치할 필요가 없어요. 실행에 필요한 외부 npm 패키지도 없어요.
 
 Linux에서 이미 작업을 예약해 두었다면 [1.x cron 작업을 systemd로 옮기는 방법](#migration)을 먼저 확인해 주세요.
 
@@ -17,57 +17,60 @@ Linux에서 이미 작업을 예약해 두었다면 [1.x cron 작업을 systemd�
 | --- | --- |
 | Linux | systemd 사용자 관리자, `systemctl --user`, `/bin/sh` |
 | macOS | GUI 로그인 세션, `launchctl`, 기존 작업 조회용 기본 `crontab` 명령 |
-| Windows | 작업 스케줄러 서비스, Windows PowerShell 5.1 |
+| Windows | 로그인한 사용자 세션, 작업 스케줄러 서비스, Windows PowerShell 5.1 |
 | cron 선택 시(Unix) | `crontab`, 실행 중인 cron 스케줄러, `/bin/sh` |
 
 ## 설치하고 첫 작업 등록하기
 
-Node.js 14.8.0 이상이 필요해요. 2.0.0 소스를 내려받았다면 프로젝트 디렉터리에서 설치한 다음, 출력되는 버전이 `2.0.0`인지 확인해 주세요. [2.0.0 소스 보기](https://github.com/fureweb-com/cronly/tree/codex/release-2.0.0)
+Node.js 14.8.0 이상이 필요해요. 2.0.0이 npm에 배포되기 전에는 릴리스 브랜치에서 바로 설치할 수 있어요. Windows에서는 아래 명령을 명령 프롬프트에서 실행하세요. PowerShell 실행 정책이 npm의 실행 스크립트를 차단하면 `npm.cmd`, `npx.cmd`, `cronly.cmd`를 사용하세요.
 
 ```bash
-npm pack
-npm install --global ./fureweb-cronly-2.0.0.tgz
+npm install --global https://github.com/fureweb-com/cronly/archive/refs/heads/codex/release-2.0.0.tar.gz
 cronly --version
 ```
 
-2.0.0이 npm에 배포된 후에는 `npm install --global @fureweb/cronly@2.0.0`으로 설치하거나 `npx @fureweb/cronly@2.0.0 --help`로 도움말을 볼 수 있어요.
+출력되는 버전은 `2.0.0`이에요. 소스를 이미 내려받았다면 프로젝트 디렉터리에서 `npm pack`을 실행한 뒤 `npm install --global ./fureweb-cronly-2.0.0.tgz`로 설치할 수도 있어요. npm 배포 후에는 `npm install --global @fureweb/cronly@2.0.0`으로 설치하거나 `npx @fureweb/cronly@2.0.0 --help`로 도움말을 볼 수 있어요.
 
-스크립트가 있는 디렉터리에서 다음 명령을 실행하면 월요일부터 금요일까지 매일 오전 9시에 작업이 실행돼요.
+작업 파일을 보관할 빈 디렉터리에 다음 한 줄을 `report.mjs`로 저장하세요.
+
+```js
+console.log(new Date().toISOString())
+```
+
+같은 디렉터리에서 평일 오전 9시 일정을 등록하고, 지금 한 번 실행해 보세요.
 
 ```bash
-cronly add ./report.mjs --weekdays --at 09:00
+cronly add ./report.mjs --name weekday-report --weekdays --at 09:00
 cronly list
+cronly run --name weekday-report
 ```
+
+`cronly logs --name weekday-report`로 출력을 확인하세요. 첫 조회가 비어 있다면 로그 조회만 다시 실행하세요. 새 UTC 시각이 찍히면 스크립트가 실행된 거예요. 예제 일정을 끝내려면 `cronly remove --name weekday-report`를 실행하세요.
 
 스크립트 경로가 `/home/lee/jobs/report.mjs`라면 Linux 목록에는 이렇게 표시돼요.
 
 ```text
-  9f9d9373  0 9 * * 1-5      /home/lee/jobs/report.mjs  (node, systemd)
+  68b547a7  [weekday-report]  0 9 * * 1-5      /home/lee/jobs/report.mjs  (node, systemd)
 ```
-
-실행 시간을 바꿀 때는 같은 파일에 `cronly add`를 다시 실행하세요. 심볼릭 링크로 같은 파일을 가리켜도 기존 일정을 갱신해요.
 
 ## 이름으로 일정 관리하기
 
-같은 스크립트에 여러 일정을 등록할 수 있어요. 작업 이름은 대소문자를 구분하며 선택한 스케줄러 안에서 고유해요. 같은 파일과 이름으로 다시 등록하면 해당 일정만 갱신돼요. 이름을 생략하면 기존처럼 파일 경로로 등록한 일정을 갱신해요. 경로에 여러 작업이 있다면 `--name` 또는 `--id`로 하나를 선택하세요.
+같은 스크립트에 여러 일정을 등록할 수 있어요. 이름은 대소문자를 구분하며 현재 사용자가 선택한 스케줄러 안에서 고유해요. 1~64자로, 첫 글자는 한글을 포함한 유니코드 문자나 숫자를 쓰세요. 이후에는 문자와 숫자 외에 `.`, `_`, `-`도 쓸 수 있어요.
+
+같은 파일과 이름으로 `add`를 다시 실행하면 해당 일정을 갱신해요. 같은 파일을 가리키는 심볼릭 링크도 인식해요. 이름 없이 등록한 작업은 별도 일정이에요. `run`, `logs`, `remove`에는 경로, `--name`, `--id` 중 하나를 지정하세요. 한 경로에 일정이 여러 개라면 이름이나 ID로 선택하세요.
 
 ```sh
-cronly add ./report.mjs --name weekday-report --weekdays --at 09:00
+cronly add ./report.mjs --name weekday-report --weekdays --at 10:00
 cronly add ./report.mjs --name weekend-report --weekends --at 11:00
 cronly list
 cronly remove --name weekend-report
 ```
 
-## 즉시 실행하고 로그 확인하기
+## 스크립트와 에이전트에서 사용하기
 
-systemd, launchd, Windows에서 `run`은 스케줄러에 등록된 작업의 1회 실행을 요청해요. 요청이 접수되면 명령이 종료돼요. 스크립트가 출력을 남긴 뒤 로그를 확인하세요. 선택형 cron 백엔드에서는 CLI가 등록된 작업 디렉터리·런타임·PATH·출력 설정으로 스크립트를 직접 실행하고 종료 코드를 반환해요. 그 밖의 환경 변수는 현재 셸에서 상속해요.
-
-```sh
-cronly run --name weekday-report
-cronly logs --name weekday-report
-```
-
-두 명령 모두 파일 경로, `--name`, `--id` 중 하나로 작업을 선택해요. `logs`는 스크립트의 표준 출력과 오류가 담긴 로그 파일 전체를 표준 출력으로 보내요.
+- `add`, `run`, `logs`, `remove`에는 같은 OS 계정, 스케줄러, 작업 이름을 사용하세요. 기본 스케줄러는 OS에 따라 정해져요. 직접 선택할 때는 매번 `CRONLY_BACKEND`에 `systemd`, `launchd`, `windows`, `cron` 중 하나를 지정하세요. `cronly --lang en doctor`는 영어로 점검 결과를 출력하고, 모두 통과하면 종료 코드 0, 문제가 있으면 1을 반환해요.
+- systemd, launchd, Windows에서 `run`의 종료 코드 0은 스케줄러가 실행 요청을 접수했다는 뜻이에요. 선택형 cron 백엔드에서는 등록된 작업 디렉터리·런타임·PATH·출력 설정으로 직접 실행하고, 다른 환경 변수는 호출한 셸에서 상속하며, 스크립트의 종료 코드를 반환해요.
+- `logs`는 이전 실행을 포함해 스크립트의 표준 출력과 오류가 담긴 로그 전체를 출력해요. 로그 파일이 아직 없으면 표준 오류에 안내를 쓰고 종료 코드 0을 반환해요. 특정 실행의 완료를 확인하려면 제한 시간을 두고 새 시각이나 완료 문구가 기록됐는지 조회하세요. `remove` 전에 로그를 조회할 수 있고, 삭제 후에도 기존 로그 파일은 `add` 때 표시한 경로에 남아요.
 
 <a id="migration"></a>
 
@@ -102,7 +105,7 @@ CLI를 업그레이드해도 기존 작업은 사용자 crontab에 남아요. �
 
 ## 일정 지정하기
 
-`add` 한 번에 일정 하나를 지정해요. 시간은 24시간제로, 요일은 `sun`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat`로 입력해요.
+`add` 한 번에 일정 하나를 지정해요. 시각은 스케줄러의 현지 시간대로 시와 분을 두 자리씩 `HH:MM` 형식으로 입력하세요. 요일은 `sun`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat`를 써요.
 
 | 일정 | 옵션 |
 | --- | --- |
@@ -116,11 +119,13 @@ CLI를 업그레이드해도 기존 작업은 사용자 crontab에 남아요. �
 | 매월 15일 09:00 | `--schedule "0 9 15 * *"` |
 | 시작 시 실행 (플랫폼별 시점은 아래 참고) | `--reboot` |
 
-`--every-hours`에는 **1, 2, 3, 4, 6, 12**를, `--every-minutes`에는 **1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30**을 쓸 수 있어요. 하루나 한 시간을 같은 간격으로 나눌 수 있는 값이에요. 다른 일정은 `--schedule`로 지정하세요. 숫자로 된 cron 필드 5개에 와일드카드, 목록, 범위, 간격을 쓸 수 있고 `@hourly`, `@monthly`, `@reboot` 같은 별칭도 지원해요.
+`--every-hours`에는 **1, 2, 3, 4, 6, 8, 12**를, `--every-minutes`에는 **1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30**을 쓸 수 있어요. 하루나 한 시간을 같은 간격으로 나눌 수 있는 값이에요. 다른 일정은 분·시·일·월·요일 순서의 표현식을 따옴표로 감싸 `--schedule`에 전달하세요. 숫자 필드에는 와일드카드, 목록, 범위, 간격을 쓸 수 있어요. 별칭은 `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`, `@annually`, `@reboot`를 지원해요.
 
 ## 스케줄러별 실행 방식
 
 ### Linux · systemd
+
+작업을 소유한 계정으로 `systemctl --user list-timers --all`을 실행하면 현재 세션에서 사용자 관리자에 연결되는지 확인할 수 있어요. SSH나 CI에서 실행할 때도 같은 방법으로 확인하세요.
 
 작업마다 `cronly-<id>.service`와 `cronly-<id>.timer`를 만들어요. 기본 위치는 `~/.config/systemd/user/`이고, `XDG_CONFIG_HOME`을 절대 경로로 설정하면 `$XDG_CONFIG_HOME/systemd/user/`에 저장해요. 달력 일정은 등록하는 순간부터 다음 실행 시각을 기다려요. 그 시각에 같은 서비스가 아직 실행 중이면 해당 회차를 건너뛰어요.
 
@@ -132,11 +137,13 @@ CLI를 업그레이드해도 기존 작업은 사용자 crontab에 남아요. �
 
 ### Windows · 작업 스케줄러
 
-작업은 등록한 사용자가 로그인한 동안 실행돼요. `--reboot` 작업은 다음 로그인 때 실행돼요. JavaScript는 Node.js로, `.ps1`은 시스템 실행 정책을 따르는 Windows PowerShell로 실행하고, `.exe`는 직접 실행해요. 다른 인터프리터는 설치한 뒤 `--runtime`으로 지정할 수 있어요.
+작업은 등록한 사용자가 로그인한 동안 실행돼요. `--reboot` 작업은 다음 로그인 때 실행돼요. JavaScript는 Node.js로, `.exe`는 직접 실행해요. 다른 인터프리터는 설치한 뒤 `--runtime`으로 지정할 수 있어요.
+
+PowerShell은 예약된 `.ps1`을 실행할 때 실행 정책을 적용해요. `Restricted`에서는 등록에 성공해도 실제 실행이 차단되어 로그에 `UnauthorizedAccess`가 기록될 수 있어요. 위 JavaScript 예제는 이 정책에서도 실행돼요. [Windows PowerShell 실행 정책](https://learn.microsoft.com/ko-kr/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
 
 ```powershell
-cronly add .\report.ps1 --weekdays --at 09:00
-cronly list
+Get-ExecutionPolicy
+cronly.cmd add .\report.mjs --name weekday-report --weekdays --at 09:00
 ```
 
 날짜와 요일을 동시에 제한하는 cron 표현식이나 트리거가 48개를 넘는 일정은 Windows에서 등록할 수 없어요. 기본 로그 경로는 `%USERPROFILE%\.cronly\logs\<id>.log`예요.
@@ -152,7 +159,7 @@ Cronly는 자신의 crontab 변경을 한 번에 하나씩 처리해요. `cronta
 - 각 작업은 **스크립트가 있는 디렉터리**에서 실행하므로 `./config.json` 같은 상대 경로는 그 위치를 기준으로 해석돼요.
 - **JavaScript 파일**(`.js`, `.mjs`, `.cjs`)은 `add`를 실행한 Node.js로 구동해요. Unix에서 `.sh` 파일은 첫 줄의 `#!` 선언에 지정된 인터프리터를 사용하고, 선언이 없으면 `/bin/sh`로 실행해요. 다른 인터프리터는 `--runtime python3`처럼 지정하고, 실행 권한이 있는 파일을 직접 실행할 때는 `--runtime exec`를 쓰세요. `#!/bin/bash -e`처럼 첫 줄에 인터프리터 옵션이 있으면 실행 권한을 부여해야 옵션까지 적용돼요.
 - Unix 작업의 **PATH**에는 등록에 사용한 Node.js의 디렉터리, `/usr/bin`, `/bin`이 차례로 들어가요. 해당 Node.js를 제거했다면 새 버전으로 작업을 다시 등록하세요. Windows에서는 상속받은 PATH 맨 앞에 Node.js 디렉터리를 추가해요.
-- 등록할 때 **로그 경로**를 출력해요. 표준 출력과 오류는 모두 `~/.cronly/logs/<id>.log`에 이어 써요. 등록 시 `CRONLY_HOME`을 지정하면 `$CRONLY_HOME/logs/`에 저장해요. 로그 로테이션은 직접 설정해야 해요.
+- 등록할 때 **로그 경로**를 출력해요. 표준 출력과 오류는 모두 `~/.cronly/logs/<id>.log`에 이어 써요. 등록 시 `CRONLY_HOME`을 지정하면 로그는 `$CRONLY_HOME/logs/`에 저장하고, 작업은 같은 사용자의 스케줄러에서 관리해요. 로그 로테이션은 직접 설정해야 해요.
 
 ## 작업 조회와 삭제
 
@@ -164,20 +171,20 @@ Cronly는 자신의 crontab 변경을 한 번에 하나씩 처리해요. `cronta
 | `cronly print` | 관리 중인 systemd 유닛, LaunchAgent plist, Windows 작업 XML 또는 crontab 블록 원문을 출력해요. |
 | `cronly doctor` | 스케줄러 상태, 스크립트와 런타임 권한, 로그 경로를 점검해요. 문제가 있으면 종료 코드 1을 반환해요. |
 | `cronly remove ./report.mjs` | 이 파일의 예약을 삭제해요. |
-| `cronly remove --id 9f9d9373` | `list`에서 확인한 ID로 예약을 삭제해요. |
+| `cronly remove --id 68b547a7` | `list`에서 확인한 ID로 예약을 삭제해요. |
 
 위 Linux 예제의 타이머 상태와 최근 실행 로그는 다음 명령으로 확인할 수 있어요.
 
 ```bash
-systemctl --user status cronly-9f9d9373.timer
-tail -n 20 ~/.cronly/logs/9f9d9373.log
+systemctl --user status cronly-68b547a7.timer
+tail -n 20 ~/.cronly/logs/68b547a7.log
 ```
 
 한국어 전체 도움말은 `cronly --lang ko --help`로 볼 수 있어요. 지원하는 언어 코드는 `en`, `ko`, `ja`, `zh`이고, 기본 언어는 `CRONLY_LANG`으로 지정해요.
 
 ## 개발 및 테스트
 
-CI와 같은 커버리지 검사를 실행하려면 최신 Node.js LTS 버전을 사용하세요.
+Linux와 macOS에서 CI와 같은 커버리지 검사를 실행하려면 최신 Node.js LTS 버전을 사용하세요.
 
 ```bash
 npm ci
@@ -185,7 +192,9 @@ npm test
 npm run test:coverage
 ```
 
-실제 스케줄러를 사용하는 통합 테스트도 있어요. Linux 사용자 세션에서는 `npm run test:systemd`, macOS GUI 세션에서는 `npm run test:launchd`를 실행하세요. cron 통합 테스트는 테스트용 계정의 crontab에서 `npm run test:integration`으로 실행해요. Windows 로그인 세션에서는 `npm run test:windows`로 작업 등록과 예약 실행을 검증해요.
+실제 스케줄러를 사용하는 통합 테스트도 있어요. Linux 사용자 세션에서는 `npm run test:systemd`, macOS GUI 세션에서는 `npm run test:launchd`를 실행하세요. cron 통합 테스트는 테스트용 계정의 crontab에서 `npm run test:integration`으로 실행해요.
+
+Windows 로그인 세션에서는 `npm.cmd test`와 `npm.cmd run test:windows`가 같은 작업 스케줄러 테스트를 실행해요. 1분 예약으로 JavaScript가 실제 실행되는지 확인한 뒤, 서명되지 않은 로컬 `.ps1` 작업을 이름으로 실행해요. `Restricted`에서는 JavaScript 검사를 통과해도 마지막 PowerShell 검사가 실패해요.
 
 ## 라이선스
 

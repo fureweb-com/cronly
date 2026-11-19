@@ -7,7 +7,7 @@
 
 **English** | [한국어](./README.ko.md) | [日本語](./README.ja.md) | [中文](./README.zh.md)
 
-Schedule a script with `cronly add ./report.mjs --daily 08:00`. Cronly 2.0.0 uses **systemd user timers on Linux** and **launchd LaunchAgents on macOS**. Windows uses its built-in **Task Scheduler**. On Linux, a running systemd user manager is enough to schedule jobs without Cronie or `crontab`. Cronly has zero npm runtime dependencies.
+Cronly schedules scripts with **systemd user timers on Linux**, **launchd LaunchAgents on macOS**, and the built-in **Task Scheduler on Windows**. On Linux, a running systemd user manager is enough to schedule jobs without Cronie or `crontab`. Cronly has zero npm runtime dependencies.
 
 Upgrading a Linux machine with existing jobs? [Move your 1.x cron jobs to systemd](#migration).
 
@@ -17,57 +17,60 @@ Upgrading a Linux machine with existing jobs? [Move your 1.x cron jobs to system
 | --- | --- |
 | Linux | systemd user manager, `systemctl --user`, and `/bin/sh` |
 | macOS | GUI login session, `launchctl`, and the system `crontab` utility to check for older jobs |
-| Windows | Task Scheduler service and Windows PowerShell 5.1 |
+| Windows | Signed-in user, Task Scheduler service, and Windows PowerShell 5.1 |
 | Optional cron (Unix) | `crontab`, an active cron scheduler, and `/bin/sh` |
 
 ## Install and schedule your first job
 
-Cronly requires Node.js 14.8.0 or later. To install from a checkout of the 2.0.0 source, run these commands in the project directory. The version should be `2.0.0`. Download the [2.0.0 source](https://github.com/fureweb-com/cronly/tree/codex/release-2.0.0).
+Cronly requires Node.js 14.8.0 or later. Before 2.0.0 is published on npm, install directly from the release branch. On Windows, use Command Prompt for these examples. In PowerShell, use `npm.cmd`, `npx.cmd`, and `cronly.cmd` if the execution policy blocks npm's PowerShell launchers.
 
 ```bash
-npm pack
-npm install --global ./fureweb-cronly-2.0.0.tgz
+npm install --global https://github.com/fureweb-com/cronly/archive/refs/heads/codex/release-2.0.0.tar.gz
 cronly --version
 ```
 
-Once 2.0.0 is published on npm, install that version with `npm install --global @fureweb/cronly@2.0.0` or try `npx @fureweb/cronly@2.0.0 --help`.
+The version should be `2.0.0`. From a local checkout, you can also run `npm pack` followed by `npm install --global ./fureweb-cronly-2.0.0.tgz`. Once 2.0.0 is on npm, use `npm install --global @fureweb/cronly@2.0.0` or `npx @fureweb/cronly@2.0.0 --help`.
 
-From the directory containing your script, schedule it for 09:00 every Monday through Friday.
+In an empty directory where you intend to keep the job, save this line as `report.mjs`.
+
+```js
+console.log(new Date().toISOString())
+```
+
+From that directory, register a weekday 09:00 schedule and request one run now.
 
 ```bash
-cronly add ./report.mjs --weekdays --at 09:00
+cronly add ./report.mjs --name weekday-report --weekdays --at 09:00
 cronly list
+cronly run --name weekday-report
 ```
+
+Read the output with `cronly logs --name weekday-report`. If the first read is empty, repeat the log command until the new UTC timestamp appears. To stop the example, run `cronly remove --name weekday-report`.
 
 For a script at `/home/lee/jobs/report.mjs`, the Linux listing looks like this.
 
 ```text
-  9f9d9373  0 9 * * 1-5      /home/lee/jobs/report.mjs  (node, systemd)
+  68b547a7  [weekday-report]  0 9 * * 1-5      /home/lee/jobs/report.mjs  (node, systemd)
 ```
-
-To change the time, run `cronly add` again for the same file. Cronly also recognizes paths that point to the same file through a symlink.
 
 ## Named schedules
 
-One script can have multiple independent schedules. Names are case-sensitive and unique within the selected scheduler. Adding the same script and name updates only that schedule. Adding it without a name updates its path-based registration. If a path matches several jobs, choose one with `--name` or `--id`.
+One script can have multiple schedules. A name is case-sensitive and unique within the user's selected scheduler. Use 1–64 Unicode letters or numbers, with `.`, `_`, and `-` also allowed after the first character.
+
+Run `add` again with the same file and name to update the schedule. Cronly recognizes symlinks to the same file. An unnamed registration has its own schedule. For `run`, `logs`, and `remove`, supply one path, `--name`, or `--id`. If a path matches several jobs, select one by name or ID.
 
 ```sh
-cronly add ./report.mjs --name weekday-report --weekdays --at 09:00
+cronly add ./report.mjs --name weekday-report --weekdays --at 10:00
 cronly add ./report.mjs --name weekend-report --weekends --at 11:00
 cronly list
 cronly remove --name weekend-report
 ```
 
-## Run once and read the log
+## Using Cronly from scripts and agents
 
-For systemd, launchd and Windows, `run` asks the scheduler to start the registered job once. It returns when the request is accepted. Check the log after the script has produced output. With the optional cron backend, the CLI runs the script locally with its registered working directory, runtime, PATH and output redirection, and returns its exit code. Other environment variables come from the invoking shell.
-
-```sh
-cronly run --name weekday-report
-cronly logs --name weekday-report
-```
-
-Use a file path, `--name` or `--id` with either command. `logs` streams the entire stored log to stdout, including both script output and errors.
+- Use the same OS account, scheduler, and job name for `add`, `run`, `logs`, and `remove`. Cronly selects the platform default. To select a backend explicitly, set `CRONLY_BACKEND` to `systemd`, `launchd`, `windows`, or `cron` on each invocation. `cronly --lang en doctor` prints English diagnostics and exits with 0 when all checks pass or 1 when a check fails.
+- On systemd, launchd, and Windows, exit code 0 from `run` means the scheduler accepted the request. With the optional cron backend, `run` executes the script locally with its registered working directory, runtime, PATH, and redirection, inherits the shell's other environment variables, and returns the script's exit code.
+- `logs` prints the entire log, including stdout and stderr from prior runs. If the log file doesn't exist yet, it prints a notice to stderr and exits with 0. To verify a particular run, poll for a new timestamp or marker with a timeout. Read the log before `remove`. The existing file remains at the path printed by `add`.
 
 <a id="migration"></a>
 
@@ -102,7 +105,7 @@ Upgrading the CLI leaves existing jobs in the user crontab. Keep cron installed 
 
 ## Schedule options
 
-Choose one schedule per `add`. Times use the 24-hour clock. Weekday names are `sun`, `mon`, `tue`, `wed`, `thu`, `fri` and `sat`.
+Choose one schedule per `add`. Use zero-padded `HH:MM` in the scheduler's local time. Weekday names are `sun`, `mon`, `tue`, `wed`, `thu`, `fri` and `sat`.
 
 | When | Options |
 | --- | --- |
@@ -116,11 +119,13 @@ Choose one schedule per `add`. Times use the 24-hour clock. Weekday names are `s
 | The 15th of each month at 09:00 | `--schedule "0 9 15 * *"` |
 | At startup (see platform behavior below) | `--reboot` |
 
-For `--every-hours`, use **1, 2, 3, 4, 6 or 12**. For `--every-minutes`, use **1, 2, 3, 4, 5, 6, 10, 12, 15, 20 or 30**. These intervals divide the day or hour evenly. Use `--schedule` for other calendar patterns. It accepts five numeric cron fields with wildcards, lists, ranges and steps, plus aliases such as `@hourly`, `@monthly` and `@reboot`.
+For `--every-hours`, use **1, 2, 3, 4, 6, 8 or 12**. For `--every-minutes`, use **1, 2, 3, 4, 5, 6, 10, 12, 15, 20 or 30**. These intervals divide the day or hour evenly. For other patterns, pass `--schedule` a quoted expression in minute, hour, day of month, month, weekday order. Numeric fields accept wildcards, lists, ranges and steps. The aliases are `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`, `@annually`, and `@reboot`.
 
 ## How the schedulers run
 
 ### Linux · systemd
+
+Run `systemctl --user list-timers --all` as the job owner to check that the session can reach the user manager. This also applies to SSH and CI sessions.
 
 Cronly writes `cronly-<id>.service` and `cronly-<id>.timer` in `~/.config/systemd/user/`, or under `$XDG_CONFIG_HOME/systemd/user/` when an absolute config path is set. Calendar timers start waiting for their next run as soon as you register them. A trigger is skipped if the previous run of that service is still active.
 
@@ -132,11 +137,13 @@ Each job has a `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` file and r
 
 ### Windows · Task Scheduler
 
-Cronly registers tasks for the current user. The user must be signed in for tasks to run. `--reboot` runs at the next login. JavaScript uses Node.js, `.ps1` uses Windows PowerShell with the system execution policy, and `.exe` runs directly. Select another installed executable with `--runtime`.
+Cronly registers tasks for the current user. The user must be signed in for tasks to run. `--reboot` runs at the next login. JavaScript uses Node.js and native `.exe` files run directly. Select another installed interpreter with `--runtime`.
+
+PowerShell checks its execution policy when a scheduled `.ps1` runs. Under `Restricted`, registration can succeed and the scheduled script can still log `UnauthorizedAccess`. The JavaScript example works under that policy. [Windows PowerShell execution policies](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
 
 ```powershell
-cronly add .\report.ps1 --weekdays --at 09:00
-cronly list
+Get-ExecutionPolicy
+cronly.cmd add .\report.mjs --name weekday-report --weekdays --at 09:00
 ```
 
 Windows rejects cron expressions that restrict both day of month and weekday, and schedules that need more than 48 native triggers. Task output is appended to `%USERPROFILE%\.cronly\logs\<id>.log` by default.
@@ -152,7 +159,7 @@ Cronly serializes its own changes to the crontab. If you also use `crontab -e`, 
 - Each job starts in the **script’s directory**, so relative paths like `./config.json` resolve there.
 - **JavaScript files** ending in `.js`, `.mjs` or `.cjs` use the Node.js binary that ran `add`. On Unix, a `.sh` file follows its shebang (for example `#!/bin/bash`) or uses `/bin/sh` if the file has no shebang. Use `--runtime python3` for another interpreter, or `--runtime exec` to run an executable file directly. For a shebang such as `#!/bin/bash -e`, make the script executable to preserve the interpreter options.
 - On Unix, the job’s **PATH** starts with the registering Node.js binary’s directory followed by `/usr/bin:/bin`. If you remove that Node.js installation, re-register its jobs with the new version. On Windows, Cronly prepends the Node.js directory to the inherited PATH.
-- On registration, Cronly prints the **log path**. Both stdout and stderr append to `~/.cronly/logs/<id>.log`. Set `CRONLY_HOME` when adding a job to use `$CRONLY_HOME/logs/`. Log rotation is up to the operator.
+- On registration, Cronly prints the **log path**. Both stdout and stderr append to `~/.cronly/logs/<id>.log`. Set `CRONLY_HOME` when adding a job to use `$CRONLY_HOME/logs/`. All registrations still belong to the user's selected scheduler. Log rotation is up to the operator.
 
 ## Inspect and remove jobs
 
@@ -164,20 +171,20 @@ Cronly serializes its own changes to the crontab. If you also use `crontab -e`, 
 | `cronly print` | Print the managed unit files, LaunchAgent plists, Windows task XML or crontab blocks. |
 | `cronly doctor` | Check scheduler state, script and runtime permissions, and log paths. A failed check sets exit code 1. |
 | `cronly remove ./report.mjs` | Remove the registration for this file. |
-| `cronly remove --id 9f9d9373` | Remove a registration using the ID from `list`. |
+| `cronly remove --id 68b547a7` | Remove a registration using the ID from `list`. |
 
 For the Linux job above, check the timer’s status and read the script’s most recent output after a run.
 
 ```bash
-systemctl --user status cronly-9f9d9373.timer
-tail -n 20 ~/.cronly/logs/9f9d9373.log
+systemctl --user status cronly-68b547a7.timer
+tail -n 20 ~/.cronly/logs/68b547a7.log
 ```
 
 Use `cronly --lang en --help` for the full CLI reference. The supported language codes are `en`, `ko`, `ja` and `zh`. Set `CRONLY_LANG` to keep a language preference.
 
 ## Development
 
-Use the latest Node.js LTS release to run the same coverage check as CI.
+On Linux or macOS, use the latest Node.js LTS release to run the same coverage check as CI.
 
 ```bash
 npm ci
@@ -185,7 +192,9 @@ npm test
 npm run test:coverage
 ```
 
-The integration commands use real schedulers. Run `npm run test:systemd` in a Linux user session, `npm run test:launchd` in a macOS GUI session, or `npm run test:integration` with a test user’s crontab. Run `npm run test:windows` in a signed-in Windows session to verify registration and an actual scheduled run.
+The integration commands use real schedulers. Run `npm run test:systemd` in a Linux user session, `npm run test:launchd` in a macOS GUI session, or `npm run test:integration` with a test user's crontab.
+
+In a signed-in Windows session, `npm.cmd test` and `npm.cmd run test:windows` both run the Task Scheduler suite. It waits for a real one-minute JavaScript trigger, then runs an unsigned local `.ps1` by name. The final PowerShell assertion fails under `Restricted` even when the JavaScript checks pass.
 
 ## License
 
