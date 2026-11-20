@@ -190,7 +190,7 @@ cronly logs --id 68b547a7 --tail 20
 
 ## 開発とテスト
 
-Linux と macOS で CI と同じカバレッジ検査を行うには、最新の Node.js LTS 版を使います。
+Linux、macOS、Windows の CI では `.nvmrc` に固定した Node.js LTS 版を使います。Linux では最低サポート版の 14.8.0 でも実際の systemd 統合テストを実行します。ローカルのカバレッジ検査には固定された LTS 版を使ってください。
 
 ```bash
 npm ci

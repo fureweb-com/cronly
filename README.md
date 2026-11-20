@@ -190,7 +190,7 @@ Use `cronly --lang en --help` for the full CLI reference. The supported language
 
 ## Development
 
-On Linux or macOS, use the latest Node.js LTS release to run the same coverage check as CI.
+CI uses the Node.js LTS release pinned in `.nvmrc` on Linux, macOS and Windows. Linux also runs the real systemd suite on the minimum supported Node.js version, 14.8.0. Use the pinned LTS for coverage.
 
 ```bash
 npm ci

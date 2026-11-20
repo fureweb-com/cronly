@@ -190,7 +190,7 @@ cronly logs --id 68b547a7 --tail 20
 
 ## 개발 및 테스트
 
-Linux와 macOS에서 CI와 같은 커버리지 검사를 실행하려면 최신 Node.js LTS 버전을 사용하세요.
+Linux, macOS, Windows CI는 `.nvmrc`에 고정한 Node.js LTS 버전을 사용해요. Linux에서는 최소 지원 버전인 14.8.0으로도 실제 systemd 통합 테스트를 실행해요. 로컬 커버리지 검사에는 고정된 LTS 버전을 사용하세요.
 
 ```bash
 npm ci

@@ -190,7 +190,7 @@ cronly logs --id 68b547a7 --tail 20
 
 ## 开发与测试
 
-在 Linux 和 macOS 上使用最新的 Node.js LTS 版本，即可运行与 CI 相同的覆盖率检查。
+Linux、macOS 和 Windows CI 使用 `.nvmrc` 固定的 Node.js LTS 版本。Linux 还会使用最低支持版本 14.8.0 运行真实的 systemd 集成测试。本地检查覆盖率时请使用固定的 LTS 版本。
 
 ```bash
 npm ci

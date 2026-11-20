@@ -1,7 +1,7 @@
 // Run under a Linux systemd user manager. Only register the unique temporary script.
-import assert from 'assert/strict'
+import { strict as assert } from 'assert'
 import { execFileSync } from 'child_process'
-import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
+import fs, { existsSync, lstatSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
@@ -60,5 +60,6 @@ try {
   console.log('Linux default backend registered, ran, updated and removed a user timer.')
 } finally {
   if (registered) run('remove', '--id', id)
-  rmSync(dir, { recursive: true, force: true })
+  if (fs.rmSync) fs.rmSync(dir, { recursive: true, force: true })
+  else fs.rmdirSync(dir, { recursive: true }) // Node 14.8 predates fs.rmSync.
 }

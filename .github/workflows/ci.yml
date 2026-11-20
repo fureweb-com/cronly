@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - codex/release-2.0.0
   pull_request:
 
 jobs:
@@ -27,8 +26,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 'lts/*'
-          check-latest: true
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
@@ -59,6 +57,18 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true
 
+      - name: Set up the minimum supported Node.js
+        if: runner.os == 'Linux'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '14.8.0'
+
+      - name: Verify real user timers on Node.js 14.8.0
+        if: runner.os == 'Linux'
+        run: |
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          node test/systemd-integration.mjs
+
   windows:
     runs-on: windows-latest
     permissions:
@@ -67,7 +77,6 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 'lts/*'
-          check-latest: true
+          node-version-file: .nvmrc
       - name: Verify real Windows scheduled tasks
         run: npm run test:windows
