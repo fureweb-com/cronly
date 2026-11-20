@@ -26,7 +26,7 @@ async function sandbox(action) {
       dir, bin, file, id, unitDir,
       service: join(unitDir, `cronly-${id}.service`), timer: join(unitDir, `cronly-${id}.timer`),
       fail(...commands) { writeFileSync(join(dir, 'failures.json'), JSON.stringify(commands)) },
-      properties(text) { writeFileSync(join(dir, 'state.json.properties'), text) },
+      properties(text, whenInstalled = false) { writeFileSync(join(dir, whenInstalled ? 'state.json.installed' : 'state.json.properties'), text) },
       state() { return JSON.parse(readFileSync(join(dir, 'state.json')))[`cronly-${id}.timer`] },
       cron(content) {
         writeFileSync(join(bin, 'crontab'), '#!' + process.execPath + '\n' +
@@ -237,12 +237,16 @@ export async function runSystemdTests({ test, testAsync, captureLogs, withPatche
   await testAsync('systemd: reject unloadable units and report session requirements', () => sandbox(async ctx => {
     const register = () => add(ctx.file, { schedule: '@daily' })
     for (const loadState of ['not-found', 'bad-setting', 'error']) {
-      ctx.properties('LoadState=' + loadState + '\nFragmentPath=')
+      ctx.properties('LoadState=' + loadState + '\nFragmentPath=', true)
       await assert.rejects(register, new RegExp('LoadState=' + loadState + '.*CRONLY_BACKEND=cron'))
       assert.deepEqual(readSystemdEntries(), [])
     }
-    ctx.properties('LoadState=loaded\nFragmentPath=')
-    await assert.rejects(register, /Cannot manage/)
+    ctx.properties('', true)
+    for (const loadState of ['loaded', 'bad-setting']) {
+      ctx.properties('LoadState=' + loadState + '\nFragmentPath=')
+      await assert.rejects(register, /Cannot manage/)
+      assert.deepEqual(readSystemdEntries(), [])
+    }
     ctx.properties('')
     const loginctl = join(ctx.bin, 'loginctl')
     for (const value of ['no', 'yes']) {

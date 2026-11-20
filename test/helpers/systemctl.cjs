@@ -23,13 +23,14 @@ switch (command) {
     if (unit) {
       const loaded = fs.existsSync(fragment)
       const overrides = fs.existsSync(file + '.properties') ? fs.readFileSync(file + '.properties', 'utf8') : ''
+      const installed = loaded && fs.existsSync(file + '.installed') ? fs.readFileSync(file + '.installed', 'utf8') : ''
       console.log([
         'LoadState=' + (loaded ? 'loaded' : 'not-found'),
         'FragmentPath=' + (loaded ? fragment : ''),
         'DropInPaths=',
         'ActiveState=' + (current.active ? 'active' : 'inactive'),
         'UnitFileState=' + (current.enabled ? 'enabled' : 'disabled'),
-        'Result=success', overrides,
+        'Result=success', overrides, installed,
       ].join('\n'))
     }
     break
