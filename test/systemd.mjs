@@ -1,11 +1,12 @@
 import { checkNamedJobs } from './named-jobs.mjs'
 import assert from 'assert/strict'
+import { PassThrough } from 'stream'
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { add, doctor, list, print, remove, run } from '../lib/commands.mjs'
+import { add, doctor, list, logs, print, remove, run } from '../lib/commands.mjs'
 import { makeId, buildBlock } from '../lib/entry.mjs'
-import { readSystemdEntries, timerDirectives } from '../lib/systemd.mjs'
+import { buildSystemdUnits, readSystemdEntries, timerDirectives } from '../lib/systemd.mjs'
 
 async function sandbox(action) {
   const dir = mkdtempSync(join(tmpdir(), 'cronly-systemd-test-'))
@@ -114,7 +115,7 @@ export async function runSystemdTests({ test, testAsync, captureLogs, withPatche
     await assert.rejects(() => add(ctx.file, { schedule: '@daily' }), /modified unit pair/)
     assert.equal(readFileSync(ctx.timer, 'utf8'), 'foreign timer')
     writeFileSync(ctx.timer, timer)
-    writeFileSync(ctx.service, service.replace(/cronly-v1 .+/, 'cronly-v1 ' + Buffer.from(JSON.stringify({ backend: 'cron' })).toString('base64')))
+    writeFileSync(ctx.service, service.replace(/cronly-v2 .+/, 'cronly-v2 ' + Buffer.from(JSON.stringify({ backend: 'cron' })).toString('base64')))
     assert.ok(readSystemdEntries()[0].invalid)
     rmSync(ctx.service)
     assert.ok(readSystemdEntries()[0].invalid)
@@ -185,11 +186,63 @@ export async function runSystemdTests({ test, testAsync, captureLogs, withPatche
     rmSync(ctx.service)
   }))
 
+  await testAsync('systemd: either unit identifies a partial named registration', () => sandbox(async ctx => {
+    const name = 'nightly'
+    const register = () => add(ctx.file, { name, schedule: '@daily' })
+    await captureLogs(register)
+    const [{ raw, ...job }] = readSystemdEntries()
+    const service = join(ctx.unitDir, `cronly-${job.id}.service`)
+    const timer = join(ctx.unitDir, `cronly-${job.id}.timer`)
+    writeFileSync(job.logPath, 'previous run\n')
+    const other = join(ctx.dir, 'other.sh')
+    writeFileSync(other, '')
+    for (const [missing, file, target] of [[service, undefined, { name }], [service, ctx.file, {}], [timer, undefined, { id: job.id }]]) {
+      unlinkSync(missing)
+      const output = new PassThrough()
+      await logs(file, target, output)
+      assert.equal(output.read().toString(), 'previous run\n')
+      await assert.rejects(() => run(file, target), /damaged registration/)
+      await assert.rejects(() => add(other, { name, schedule: '@daily' }), /already in use/)
+      await captureLogs(() => remove(file, target))
+      await captureLogs(register)
+    }
+    writeFileSync(timer, buildSystemdUnits({ ...job, path: other }).timer)
+    await assert.rejects(() => remove(undefined, { id: job.id }), /modified unit pair/)
+    writeFileSync(timer, raw.service.toString().replace('cronly-v2', 'cronly-v1'))
+    await assert.rejects(() => remove(undefined, { id: job.id }), /modified unit pair/)
+    writeFileSync(timer, raw.timer)
+    unlinkSync(service)
+    writeFileSync(timer, raw.timer + '# edit\n')
+    await assert.rejects(() => logs(undefined, { name }), /damaged registration/)
+    await captureLogs(register)
+  }))
+
+  await testAsync('systemd: update a v1 pair and remove an old ID-only orphan', () => sandbox(async ctx => {
+    const register = () => add(ctx.file, { schedule: '@daily' })
+    await captureLogs(register)
+    const [{ raw, ...job }] = readSystemdEntries()
+    const legacy = buildSystemdUnits(job, 1)
+    writeFileSync(ctx.service, legacy.service)
+    writeFileSync(ctx.timer, legacy.timer)
+    assert.equal(readSystemdEntries()[0].invalid, undefined)
+    await captureLogs(register)
+    assert.deepEqual(readSystemdEntries()[0].raw, raw)
+    writeFileSync(ctx.timer, legacy.timer)
+    unlinkSync(ctx.service)
+    assert.equal(readSystemdEntries()[0].invalid, true)
+    await captureLogs(() => remove(undefined, { id: ctx.id }))
+    assert.deepEqual(readSystemdEntries(), [])
+  }))
+
   await testAsync('systemd: reject unloadable units and report session requirements', () => sandbox(async ctx => {
     const register = () => add(ctx.file, { schedule: '@daily' })
-    ctx.properties('LoadState=not-found')
-    await assert.rejects(register, /LoadState=not-found.*242/)
-    assert.deepEqual(readSystemdEntries(), [])
+    for (const loadState of ['not-found', 'bad-setting', 'error']) {
+      ctx.properties('LoadState=' + loadState + '\nFragmentPath=')
+      await assert.rejects(register, new RegExp('LoadState=' + loadState + '.*CRONLY_BACKEND=cron'))
+      assert.deepEqual(readSystemdEntries(), [])
+    }
+    ctx.properties('LoadState=loaded\nFragmentPath=')
+    await assert.rejects(register, /Cannot manage/)
     ctx.properties('')
     const loginctl = join(ctx.bin, 'loginctl')
     for (const value of ['no', 'yes']) {

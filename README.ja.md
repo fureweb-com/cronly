@@ -15,7 +15,7 @@ Cronly は、**Linux の systemd ユーザータイマー**、**macOS の launch
 
 | プラットフォーム | 必要なシステム機能 |
 | --- | --- |
-| Linux | systemd 242 以降のユーザーマネージャー、`systemctl --user`、`/bin/sh` |
+| Linux | systemd 237 以降のユーザーマネージャー、`systemctl --user`、`/bin/sh` |
 | macOS | GUI ログインセッション、`launchctl`、旧ジョブの確認に使う標準の `crontab` |
 | Windows | サインイン中のユーザー、タスク スケジューラ サービス、Windows PowerShell 5.1、Windows Script Host（JScript） |
 | cron を選ぶ場合（Unix） | `crontab`、稼働中の cron スケジューラー、`/bin/sh` |
@@ -129,7 +129,7 @@ CLI をアップグレードしても、登録済みのジョブはユーザー�
 
 ジョブごとに `cronly-<id>.service` と `cronly-<id>.timer` を作成します。保存先は `~/.config/systemd/user/` で、`XDG_CONFIG_HOME` に絶対パスを設定した場合は `$XDG_CONFIG_HOME/systemd/user/` です。カレンダータイマーは登録と同時に次の実行を待ちます。その時刻に前回のサービスがまだ動いていれば、その回はスキップします。
 
-ユニットファイルの片方が欠けている、または変更された場合は、元の `add` コマンドで修復するか、`cronly remove --id <id>` で削除できます。所有元を確認できないファイルは保持されます。
+ユニットファイルの片方が欠けている、または変更された場合は、元の `add` コマンドで修復するか、`cronly remove --id <id>` で削除できます。所有元を確認できないファイルは保持されます。 新しい登録では、元のユニットが片方だけ残っていても、名前またはスクリプトのパスでログを表示したり登録を削除したりできます。ID だけを持つ以前のタイマーには `list` に表示された ID を指定してください。
 
 `--reboot` ジョブの初回実行は **次にユーザーマネージャーが起動したとき** です。サーバーの起動時からログアウト後もジョブを動かすには、対象のアカウントで `loginctl enable-linger "$USER"` を実行して linger を有効にします。
 

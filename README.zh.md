@@ -15,7 +15,7 @@ Cronly 使用 **Linux 的 systemd 用户定时器**、**macOS 的 launchd Launch
 
 | 平台 | 所需系统组件 |
 | --- | --- |
-| Linux | systemd 242 或更高版本的用户管理器、`systemctl --user`、`/bin/sh` |
+| Linux | systemd 237 或更高版本的用户管理器、`systemctl --user`、`/bin/sh` |
 | macOS | 图形登录会话、`launchctl`，以及检查旧任务所用的系统 `crontab` 命令 |
 | Windows | 已登录的用户会话、任务计划程序服务、Windows PowerShell 5.1、Windows Script Host（JScript） |
 | 可选 cron（Unix） | `crontab`、运行中的 cron 调度器、`/bin/sh` |
@@ -129,7 +129,7 @@ cronly remove --name weekend-report
 
 Cronly 为每个任务创建 `cronly-<id>.service` 和 `cronly-<id>.timer`。默认位置是 `~/.config/systemd/user/`，如果 `XDG_CONFIG_HOME` 设为绝对路径，则存放在 `$XDG_CONFIG_HOME/systemd/user/`。日历定时器注册后就开始等待下次执行。触发时，如果上一次启动的服务仍在运行，本次会跳过。
 
-如果其中一个单元文件缺失或已被修改，可重新执行原来的 `add` 命令修复，或用 `cronly remove --id <id>` 删除。Cronly 会保留无法确认归属的文件。
+如果其中一个单元文件缺失或已被修改，可重新执行原来的 `add` 命令修复，或用 `cronly remove --id <id>` 删除。Cronly 会保留无法确认归属的文件。新注册的任务只要仍有一个原始单元，就可以按名称或脚本路径查看日志或删除任务。如果旧定时器只存有 ID，请使用 `list` 显示的 ID。
 
 `--reboot` 任务在**用户管理器下次启动时**首次运行。如果服务器需要在开机时就执行任务，并在用户退出后继续调度，可为该账户运行 `loginctl enable-linger "$USER"` 以启用 linger。
 

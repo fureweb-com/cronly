@@ -15,7 +15,7 @@ Upgrading a Linux machine with existing jobs? [Move your 1.x cron jobs to system
 
 | Platform | Required system components |
 | --- | --- |
-| Linux | systemd 242+ user manager, `systemctl --user`, and `/bin/sh` |
+| Linux | systemd 237+ user manager, `systemctl --user`, and `/bin/sh` |
 | macOS | GUI login session, `launchctl`, and the system `crontab` utility to check for older jobs |
 | Windows | Signed-in user, Task Scheduler, Windows PowerShell 5.1, and Windows Script Host (JScript) |
 | Optional cron (Unix) | `crontab`, an active cron scheduler, and `/bin/sh` |
@@ -129,7 +129,7 @@ Run `systemctl --user list-timers --all` as the job owner to check that the sess
 
 Cronly writes `cronly-<id>.service` and `cronly-<id>.timer` in `~/.config/systemd/user/`, or under `$XDG_CONFIG_HOME/systemd/user/` when an absolute config path is set. Calendar timers start waiting for their next run as soon as you register them. A trigger is skipped if the previous run of that service is still active.
 
-If one of the two unit files is missing or edited, repeat the original `add` command to repair it, or use `cronly remove --id <id>` to remove it. Cronly preserves files whose ownership it cannot verify.
+If one of the two unit files is missing or edited, repeat the original `add` command to repair it, or use `cronly remove --id <id>` to remove it. Cronly preserves files whose ownership it cannot verify. When one original unit remains, `logs` and `remove` can still select a new registration by name or script path. For older ID-only timers, use the ID shown by `list`.
 
 A `--reboot` job first runs the **next time the user manager starts**. On a server where jobs must run from boot and continue after logout, enable lingering for the account with `loginctl enable-linger "$USER"`.
 

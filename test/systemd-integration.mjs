@@ -35,6 +35,10 @@ try {
     assert.equal(run('logs', '--name', name).trim(), dir + '\ntimer fired')
     assert.equal(run('logs', '--name', name, '--tail', '1'), 'timer fired\n')
     assert.equal(existsSync(log), false)
+    const service = `cronly-${makeId(file, name)}.service`
+    const path = execFileSync('systemctl', ['--user', 'show', '--property=FragmentPath', '--value', service], { encoding: 'utf8' }).trim()
+    unlinkSync(path)
+    assert.equal(run('logs', '--name', name, '--tail', '1'), 'timer fired\n')
   } finally {
     run('remove', '--name', name)
   }
