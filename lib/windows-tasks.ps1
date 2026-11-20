@@ -2,6 +2,27 @@
 $ErrorActionPreference = 'Stop'
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+# The scheduler canonicalizes XML (including ISO durations and default values).
+# Load both definitions through the same COM serializer before comparing them.
+function Get-ExecutionDefinition([string]$xml) {
+    $definition = $scheduler.NewTask(0)
+    $definition.XmlText = $xml
+    $document = [xml]$definition.XmlText
+    $ns = [Xml.XmlNamespaceManager]::new($document.NameTable)
+    $ns.AddNamespace('t', $document.DocumentElement.NamespaceURI)
+    foreach ($user in $document.SelectNodes('//t:UserId', $ns)) {
+        if ($user.InnerText -eq $identity.Name) { $user.InnerText = $sid }
+    }
+    # Registered tasks can return PT23H59M30S where the input used PT1439M30S.
+    foreach ($period in $document.SelectNodes('//t:Repetition/t:Interval | //t:Repetition/t:Duration', $ns)) {
+        $period.InnerText = [Xml.XmlConvert]::ToTimeSpan($period.InnerText).Ticks.ToString()
+    }
+    $parts = foreach ($name in 'Triggers', 'Actions', 'Principals') {
+        $document.SelectSingleNode("/t:Task/t:$name", $ns).OuterXml
+    }
+    return ($parts -join '')
+}
+
 try {
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -27,6 +48,13 @@ try {
             }
         })
         [Console]::Write((ConvertTo-Json -Compress -Depth 4 -InputObject @{sid=$sid; entries=$entries}))
+    } elseif ($request.op -eq 'verify') {
+        $changed = @(foreach ($item in $request.definitions) {
+            try {
+                if ((Get-ExecutionDefinition $item.expected) -cne (Get-ExecutionDefinition $item.actual)) { $item.id }
+            } catch { $item.id }
+        })
+        [Console]::Write((ConvertTo-Json -Compress -InputObject $changed))
     } else {
         if ($request.id -cnotmatch '^[0-9a-f]{8}$') { throw 'Invalid Cronly task ID' }
         $name = $prefix + $request.id

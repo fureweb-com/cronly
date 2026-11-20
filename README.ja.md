@@ -150,6 +150,8 @@ cronly.cmd add .\report.mjs --name weekday-report --weekdays --at 09:00
 
 日付と曜日の両方を制限する cron 式や、48 個を超えるトリガーを必要とする予定は登録できません。既定のログは `%USERPROFILE%\.cronly\logs\<id>.log` に追記します。
 
+タスク スケジューラで定義が変更されると、`doctor` は Windows 上のタスク名を表示します。内容を確認し、Cronly 所有のタスクなら `cronly remove --id <id>` で削除してから再登録してください。
+
 ### cron を選ぶ場合
 
 ユーザーの crontab とそれを実行するスケジューラーがある環境で `CRONLY_BACKEND=cron` を指定します。Cronly はユーザーの crontab のうち、自身のマーカーで囲んだブロックを管理します。Linux では `doctor` がプロセス一覧を参照できる場合、cron デーモンも確認します。

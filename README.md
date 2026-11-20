@@ -150,6 +150,8 @@ cronly.cmd add .\report.mjs --name weekday-report --weekdays --at 09:00
 
 Windows rejects cron expressions that restrict both day of month and weekday, and schedules that need more than 48 native triggers. Task output is appended to `%USERPROFILE%\.cronly\logs\<id>.log` by default.
 
+If a task has been edited in Task Scheduler, `doctor` identifies it by its native name. Inspect the definition, then use `cronly remove --id <id>` for a Cronly-owned task and register it again.
+
 ### Optional cron backend
 
 Use `CRONLY_BACKEND=cron` with a working user crontab and cron scheduler. Cronly edits its marked blocks in the user crontab. On Linux, `doctor` also checks for a cron daemon when it can inspect the process list.

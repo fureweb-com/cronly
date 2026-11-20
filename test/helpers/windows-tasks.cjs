@@ -5,6 +5,8 @@ const entries = JSON.parse(fs.readFileSync(file, 'utf8'))
 const req = JSON.parse(fs.readFileSync(0, 'utf8'))
 if (req.op === 'list') {
   process.stdout.write(JSON.stringify({ sid: 'S-1-5-21-1234', entries }))
+} else if (req.op === 'verify') {
+  process.stdout.write(JSON.stringify(req.definitions.filter(d => d.expected !== d.actual).map(d => d.id)))
 } else {
   const before = entries.find(entry => entry.id === req.id)
   if (req.op === 'create' ? before : before.xml !== req.previousXml) throw new Error('Concurrent change')

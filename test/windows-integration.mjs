@@ -1,5 +1,5 @@
 import assert from 'assert/strict'
-import { execFileSync } from 'child_process'
+import { execFileSync, spawnSync } from 'child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -47,6 +47,20 @@ try {
   }
   assert.match(readFileSync(log, 'utf8'), /scheduled 한글\r?\nstderr works/)
   run('doctor')
+  run('add', file, '--reboot')
+  // Edit our disposable task independently of Cronly, as Task Scheduler's GUI would.
+  const edit = [
+    "$ErrorActionPreference='Stop'",
+    '$s=New-Object -ComObject Schedule.Service', '$s.Connect()', "$f=$s.GetFolder('\\')",
+    '$t=$f.GetTask($env:CRONLY_TEST_TASK)', '$d=$t.Definition',
+    "$d.Actions.Item(1).Arguments='changed'",
+    '$null=$f.RegisterTaskDefinition($t.Name,$d,4,$d.Principal.UserId,$null,3,$null)',
+  ].join(';')
+  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', edit], { env: { ...env, CRONLY_TEST_TASK: nativeName(id) } })
+  assert.ok(run('list').includes(nativeName(id)))
+  for (const args of [['doctor'], ['run', '--id', id]]) {
+    assert.equal(spawnSync(process.execPath, [cli, ...args], { env }).status, 1)
+  }
   run('remove', '--id', id)
   registered = false
   assert.ok(!run('list').includes(file))

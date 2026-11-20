@@ -8,7 +8,7 @@ import { getBackend } from '../lib/backend.mjs'
 import { add, doctor, list, print, remove, run } from '../lib/commands.mjs'
 import { schedulerLockPath } from '../lib/lock.mjs'
 import { windowsRuntime } from '../lib/windows.mjs'
-import { windowsAction, windowsTriggers } from '../lib/windows-task.mjs'
+import { windowsAction, windowsTriggers, windowsTaskXml } from '../lib/windows-task.mjs'
 
 export async function runWindowsTests({ test, testAsync, captureLogs, withPatchedVersion }) {
   test('Windows: defaults and exact calendar triggers', () => {
@@ -95,7 +95,9 @@ export async function runWindowsTests({ test, testAsync, captureLogs, withPatche
       }
       write([{ ...entry, enabled: false }])
       assert.equal((await captured(doctor)).result, false)
-      write([{ ...entry, metadata: JSON.stringify({ ...job, nodePath: join(dir, 'missing-node.exe'), runtimePath: join(dir, 'missing.exe') }) }])
+      const missing = { ...job, nodePath: join(dir, 'missing-node.exe'), runtimePath: join(dir, 'missing.exe') }
+      const sid = 'S-1-5-21-1234'
+      write([{ ...entry, metadata: JSON.stringify(missing), xml: windowsTaskXml(missing, sid) }])
       assert.equal((await captured(doctor)).result, false)
       write([entry, { ...entry, id: 'f00df00d', metadata: JSON.stringify({ ...job, id: 'f00df00d' }) }])
       await assert.rejects(register, /Multiple Windows tasks/)
@@ -106,7 +108,23 @@ export async function runWindowsTests({ test, testAsync, captureLogs, withPatche
         assert.match((await captured(list)).logs[0], /Cannot manage Windows task/)
         assert.equal((await captured(doctor)).result, false)
         await assert.rejects(register, /Cannot manage Windows task/)
-        await assert.rejects(() => remove(null, { id: entry.id }), /Cannot manage Windows task/)
+        if (override.source) {
+          await assert.rejects(() => remove(null, { id: entry.id }), new RegExp('Cronly-' + sid + '-' + entry.id))
+          assert.equal(read().length, 1)
+        } else {
+          await captured(() => remove(null, { id: entry.id }))
+          assert.deepEqual(read(), [])
+        }
+      }
+      for (const tag of ['CalendarTrigger', 'Exec', 'Principal']) {
+        const xml = entry.xml.replace('<' + tag, '<Changed' + tag)
+        write([{ ...entry, xml }])
+        assert.match((await captured(list)).logs[0], /Task Scheduler/)
+        assert.equal((await captured(doctor)).result, false)
+        await assert.rejects(() => run(file, {}), /damaged registration/)
+        await assert.rejects(() => remove(file, {}), /remove --id/)
+        await captured(() => remove(null, { id: entry.id }))
+        assert.deepEqual(read(), [])
       }
       write([entry])
       await withPatchedVersion('v14.7.0', async () => assert.equal((await captured(doctor)).result, false))

@@ -150,6 +150,8 @@ cronly.cmd add .\report.mjs --name weekday-report --weekdays --at 09:00
 
 同时限制日期和星期的 cron 表达式，以及需要超过 48 个触发器的计划，均无法注册。日志默认追加到 `%USERPROFILE%\.cronly\logs\<id>.log`。
 
+如果任务定义在任务计划程序中被修改，`doctor` 会显示其 Windows 任务名。请检查定义，确认属于 Cronly 后用 `cronly remove --id <id>` 删除并重新注册。
+
 ### 可选的 cron 后端
 
 如果系统有用户 crontab 和执行它的 cron 调度器，可设置 `CRONLY_BACKEND=cron`。Cronly 管理用户 crontab 中带有自身标记的任务块。在 Linux 上，如果能读取进程列表，`doctor` 也会检查 cron 守护进程。
