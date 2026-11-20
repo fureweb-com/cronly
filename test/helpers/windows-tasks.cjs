@@ -10,14 +10,16 @@ async function main() {
   fs.appendFileSync(file + '.ops', req.op + '\n')
   const blockedBy = req.checkScriptHost && fs.existsSync(file + '.policy') ? fs.readFileSync(file + '.policy', 'utf8') : null
   if (req.op === 'list') {
-    if (fs.existsSync(file + '.malformed')) {
-      process.stdout.write('invalid JSON\r\n')
+    const malformed = fs.existsSync(file + '.malformed') ? JSON.parse(fs.readFileSync(file + '.malformed', 'utf8')) : {}
+    if (malformed.stderr) process.stderr.write(malformed.stderr)
+    if (malformed.first !== undefined) {
+      process.stdout.write(malformed.first + '\r\n')
       return
     }
     process.stdout.write(JSON.stringify({ sid: 'S-1-5-21-1234', entries, blockedBy }) + '\r\n')
     const expected = JSON.parse((await lines.next()).value)
     const changed = entries.filter(entry => expected[entry.id] && expected[entry.id] !== entry.xml)
-    process.stdout.write(JSON.stringify(changed.map(entry => entry.id)))
+    process.stdout.write(malformed.last !== undefined ? malformed.last : JSON.stringify(changed.map(entry => entry.id)))
     return
   }
   const before = entries.find(entry => entry.id === req.id)
