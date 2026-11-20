@@ -1,11 +1,12 @@
 import { checkNamedJobs } from './named-jobs.mjs'
 import assert from 'assert/strict'
+import { PassThrough } from 'stream'
 import { spawnSync } from 'child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { getBackend } from '../lib/backend.mjs'
-import { add, doctor, list, print, remove, run } from '../lib/commands.mjs'
+import { add, doctor, list, logs, print, remove, run } from '../lib/commands.mjs'
 import { schedulerLockPath } from '../lib/lock.mjs'
 import { windowsRuntime } from '../lib/windows.mjs'
 import { launcherPath, scriptHostPath, windowsAction, windowsLauncher, windowsTriggers, windowsTaskXml } from '../lib/windows-task.mjs'
@@ -47,6 +48,9 @@ export async function runWindowsTests({ test, testAsync, captureLogs, withPatche
       writeFileSync(file, "console.log(require('fs').readFileSync('input','utf8')); console.error('stderr'); process.exitCode=7")
       writeFileSync(join(dir, 'input'), 'from script cwd')
       write([])
+      writeFileSync(state + '.malformed', '')
+      await assert.rejects(list, SyntaxError)
+      rmSync(state + '.malformed')
       await assert.rejects(register, /wscript.exe/)
       writeFileSync(scriptHostPath(), '')
       await checkNamedJobs(file, captureLogs)
@@ -68,7 +72,12 @@ export async function runWindowsTests({ test, testAsync, captureLogs, withPatche
       await captured(register)
       const [entry] = read()
       const job = JSON.parse(entry.metadata)
+      writeFileSync(job.logPath, 'earlier output\n')
+      writeFileSync(state + '.ops', '')
+      await captured(list)
+      await logs(file, {}, new PassThrough())
       assert.equal((await captured(() => run(file, {}))).result, 0)
+      assert.deepEqual(readFileSync(state + '.ops', 'utf8').trim().split('\n'), ['list', 'list', 'list', 'run'])
       assert.equal(readFileSync(state + '.last-run', 'utf8'), entry.id)
       assert.ok((await captured(list)).logs[0].includes(file))
       assert.match((await captured(print)).logs[0], /&amp;.*&lt;sample&gt;/)

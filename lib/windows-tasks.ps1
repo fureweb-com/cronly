@@ -24,7 +24,7 @@ function Get-ExecutionDefinition([string]$xml) {
 }
 
 try {
-    $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $request = [Console]::In.ReadLine() | ConvertFrom-Json
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $sid = $identity.User.Value
     $prefix = 'Cronly-' + $sid + '-'
@@ -47,12 +47,15 @@ try {
                 result = $task.LastTaskResult
             }
         })
-        [Console]::Write((ConvertTo-Json -Compress -Depth 4 -InputObject @{sid=$sid; entries=$entries}))
-    } elseif ($request.op -eq 'verify') {
-        $changed = @(foreach ($item in $request.definitions) {
+        [Console]::WriteLine((ConvertTo-Json -Compress -Depth 4 -InputObject @{sid=$sid; entries=$entries}))
+        [Console]::Out.Flush()
+        $expected = [Console]::In.ReadToEnd() | ConvertFrom-Json
+        $changed = @(foreach ($entry in $entries) {
+            $property = $expected.PSObject.Properties[$entry.id]
+            if ($null -eq $property) { continue }
             try {
-                if ((Get-ExecutionDefinition $item.expected) -cne (Get-ExecutionDefinition $item.actual)) { $item.id }
-            } catch { $item.id }
+                if ((Get-ExecutionDefinition $property.Value) -cne (Get-ExecutionDefinition $entry.xml)) { $entry.id }
+            } catch { $entry.id }
         })
         [Console]::Write((ConvertTo-Json -Compress -InputObject $changed))
     } else {
