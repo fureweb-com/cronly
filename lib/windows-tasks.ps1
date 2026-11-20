@@ -13,8 +13,10 @@ function Get-DisabledScriptHostKey {
             $key = $root.OpenSubKey($path)
             if ($null -ne $key) {
                 try {
-                    $enabled = $key.GetValue('Enabled')
-                    if ($enabled -is [int] -and $enabled -eq 0) { return ($key.Name + '\Enabled') }
+                    $enabled = $key.GetValue('Enabled', $null, 'DoNotExpandEnvironmentNames')
+                    if ([string]$enabled -ceq '0' -and $key.GetValueKind('Enabled') -in 'DWord', 'String') {
+                        return ($key.Name + '\Enabled')
+                    }
                 } finally { $key.Dispose() }
             }
         } finally { $root.Dispose() }
