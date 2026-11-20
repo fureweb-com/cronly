@@ -1,0 +1,5 @@
+var shell = new ActiveXObject("WScript.Shell");
+var env = shell.Environment("Process");
+env.Item("CRONLY_WINDOWS_NODE") = WScript.Arguments.Item(0).replace(/\|/g, "%");
+var command = "\"%CRONLY_WINDOWS_NODE%\" -e \"const fs=require('fs'), path=require('path'), cp=require('child_process'); const j=JSON.parse(Buffer.from(process.argv[1],'base64').toString('utf8')); const log=fs.openSync(j.logPath,'a'); process.env.PATH=path.dirname(process.execPath)+path.delimiter+(process.env.PATH||''); const r=cp.spawnSync(j.runtimePath,j.args,{cwd:path.dirname(j.path),windowsHide:true,stdio:['ignore',log,log]}); if(r.error) fs.writeSync(log,r.error.message+'\\n'); fs.closeSync(log); process.exitCode=r.status===null?1:r.status;\" -- " + WScript.Arguments.Item(1);
+WScript.Quit(shell.Run(command, 0, true));

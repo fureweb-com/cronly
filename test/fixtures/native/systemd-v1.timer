@@ -1,0 +1,7 @@
+# cronly-v1 e6213c6f
+[Timer]
+OnCalendar=Mon,Tue,Wed,Thu,Fri *-*-* 8:0:00
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

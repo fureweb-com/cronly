@@ -1,3 +1,4 @@
+import { testNativeFormats } from './native-formats.mjs'
 import { checkNamedJobs } from './named-jobs.mjs'
 import { runWindowsTests } from './windows.mjs'
 import { runSystemdTests } from './systemd.mjs'
@@ -3311,6 +3312,7 @@ await testAsync('cron: independent named and path-based schedules', () => withMo
   await assert.rejects(() => add(file, { name: 'collision', schedule: '@daily' }), /another registration/)
 }))
 
+testNativeFormats(test)
 await runWindowsTests({ test, testAsync, captureLogs, withPatchedVersion })
 await runSystemdTests({ test, testAsync, captureLogs, withPatchedVersion })
 await runLaunchdTests({ test, testAsync, captureLogs, withPatchedVersion })
