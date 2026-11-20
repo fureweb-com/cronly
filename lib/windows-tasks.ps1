@@ -33,11 +33,14 @@ function Get-ExecutionDefinition([string]$xml) {
         if ($user.InnerText -eq $identity.Name) { $user.InnerText = $sid }
     }
     # Registered tasks can return PT23H59M30S where the input used PT1439M30S.
-    foreach ($period in $document.SelectNodes('//t:Repetition/t:Interval | //t:Repetition/t:Duration', $ns)) {
+    foreach ($period in $document.SelectNodes('//t:Repetition/t:Interval | //t:Repetition/t:Duration | /t:Task/t:Settings/t:ExecutionTimeLimit', $ns)) {
         $period.InnerText = [Xml.XmlConvert]::ToTimeSpan($period.InnerText).Ticks.ToString()
     }
-    $parts = foreach ($name in 'Triggers', 'Actions', 'Principals') {
-        $document.SelectSingleNode("/t:Task/t:$name", $ns).OuterXml
+    $owned = @('t:Triggers', 't:Actions', 't:Principals',
+        't:Settings/t:MultipleInstancesPolicy', 't:Settings/t:DisallowStartIfOnBatteries',
+        't:Settings/t:StopIfGoingOnBatteries', 't:Settings/t:ExecutionTimeLimit')
+    $parts = foreach ($path in $owned) {
+        $document.SelectSingleNode("/t:Task/$path", $ns).OuterXml
     }
     return ($parts -join '')
 }

@@ -87,17 +87,31 @@ try {
   assert.equal(result, '7')
   assert.match(run('logs', '--id', id), /deliberate failure/)
   // Edit our disposable task independently of Cronly, as Task Scheduler's GUI would.
-  const edit = [
-    "$ErrorActionPreference='Stop'",
-    '$s=New-Object -ComObject Schedule.Service', '$s.Connect()', "$f=$s.GetFolder('\\')",
-    '$t=$f.GetTask($env:CRONLY_TEST_TASK)', '$d=$t.Definition',
+  const changes = [
+    '$d.Settings.MultipleInstances=1', '$d.Settings.DisallowStartIfOnBatteries=$true',
+    '$d.Settings.StopIfGoingOnBatteries=$true', "$d.Settings.ExecutionTimeLimit='PT1H'",
     "$d.Actions.Item(1).Arguments='changed'",
-    '$null=$f.RegisterTaskDefinition($t.Name,$d,4,$d.Principal.UserId,$null,3,$null)',
-  ].join(';')
-  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', edit], { env: { ...env, CRONLY_TEST_TASK: nativeName(id) } })
-  assert.ok(run('list').includes(nativeName(id)))
-  for (const args of [['doctor'], ['run', '--id', id]]) {
-    assert.equal(spawnSync(process.execPath, [cli, ...args], { env }).status, 1)
+  ]
+  for (const change of changes) {
+    const edit = [
+      "$ErrorActionPreference='Stop'",
+      '$s=New-Object -ComObject Schedule.Service', '$s.Connect()', "$f=$s.GetFolder('\\')",
+      '$t=$f.GetTask($env:CRONLY_TEST_TASK)', '$d=$t.Definition',
+      '$d.Settings.MultipleInstances=2', '$d.Settings.DisallowStartIfOnBatteries=$false',
+      '$d.Settings.StopIfGoingOnBatteries=$false', "$d.Settings.ExecutionTimeLimit='PT0S'", change,
+      '$null=$f.RegisterTaskDefinition($t.Name,$d,4,$d.Principal.UserId,$null,3,$null)',
+    ].join(';')
+    execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', edit], { env: { ...env, CRONLY_TEST_TASK: nativeName(id) } })
+    assert.ok(run('list').includes(nativeName(id)))
+    for (const [args, expected] of [
+      [['doctor'], 'Cannot manage Windows task ' + nativeName(id)],
+      [['run', '--id', id], 'Cannot use damaged registration ' + id],
+    ]) {
+      const attempt = spawnSync(process.execPath, [cli, ...args], { env, encoding: 'utf8' })
+      const message = attempt.stdout + attempt.stderr
+      assert.equal(attempt.status, 1, message)
+      assert.ok(message.includes(expected), message)
+    }
   }
   run('remove', '--id', id)
   registered = false

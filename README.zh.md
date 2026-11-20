@@ -152,7 +152,7 @@ cronly.cmd add .\report.mjs --name weekday-report --weekdays --at 09:00
 
 同时限制日期和星期的 cron 表达式，以及需要超过 48 个触发器的计划，均无法注册。日志默认追加到 `%USERPROFILE%\.cronly\logs\<id>.log`。
 
-如果任务定义在任务计划程序中被修改，`doctor` 会显示其 Windows 任务名。请检查定义，确认属于 Cronly 后用 `cronly remove --id <id>` 删除并重新注册。
+如果在任务计划程序中修改了触发器、操作、运行账户、电池设置、时间限制或并发策略，`doctor` 会显示相应的任务名。请检查定义，确认属于 Cronly 后用 `cronly remove --id <id>` 删除并重新注册。
 
 ### 可选的 cron 后端
 

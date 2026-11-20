@@ -152,7 +152,7 @@ cronly.cmd add .\report.mjs --name weekday-report --weekdays --at 09:00
 
 날짜와 요일을 동시에 제한하는 cron 표현식이나 트리거가 48개를 넘는 일정은 Windows에서 등록할 수 없어요. 기본 로그 경로는 `%USERPROFILE%\.cronly\logs\<id>.log`예요.
 
-작업 스케줄러에서 작업 정의를 수정하면 `doctor`가 Windows 작업 이름을 표시해요. 정의를 확인하고 Cronly 소유 작업이라면 `cronly remove --id <id>`로 지운 뒤 다시 등록하세요.
+작업 스케줄러에서 트리거, 동작, 실행 계정, 배터리 설정, 시간 제한, 중복 실행 정책을 수정하면 `doctor`가 해당 작업 이름을 표시해요. 정의를 확인하고 Cronly 소유 작업이라면 `cronly remove --id <id>`로 지운 뒤 다시 등록하세요.
 
 ### cron을 선택한 경우
 
