@@ -53,7 +53,12 @@ try {
     $scheduler = New-Object -ComObject Schedule.Service
     $scheduler.Connect()
     $folder = $scheduler.GetFolder('\')
-    $blockedBy = if ($request.checkScriptHost) { Get-DisabledScriptHostKey }
+    $blockedBy = $null
+    if ($request.checkScriptHost) {
+        # Windows PowerShell 5.1 serializes an empty pipeline as {} in a hashtable.
+        $disabledKey = Get-DisabledScriptHostKey
+        if ($disabledKey) { $blockedBy = $disabledKey }
+    }
     if ($request.op -eq 'list') {
         $entries = @(foreach ($task in $folder.GetTasks(1)) {
             if (!$task.Name.StartsWith($prefix)) { continue }

@@ -8,7 +8,7 @@ async function main() {
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity })[Symbol.asyncIterator]()
   const req = JSON.parse((await lines.next()).value)
   fs.appendFileSync(file + '.ops', req.op + '\n')
-  const blockedBy = req.checkScriptHost && fs.existsSync(file + '.policy') && fs.readFileSync(file + '.policy', 'utf8')
+  const blockedBy = req.checkScriptHost && fs.existsSync(file + '.policy') ? fs.readFileSync(file + '.policy', 'utf8') : null
   if (req.op === 'list') {
     if (fs.existsSync(file + '.malformed')) {
       process.stdout.write('invalid JSON\r\n')

@@ -27,8 +27,8 @@ function checkScriptHostPolicy() {
   const key = 'HKCU\\' + subkey
   const bridge = readFileSync(new URL('../lib/windows-tasks.ps1', import.meta.url), 'utf8')
     .replace('SOFTWARE\\Microsoft\\Windows Script Host\\Settings', subkey)
-  const request = JSON.stringify({ op: 'list', checkScriptHost: true }) + '\n{}'
-  const probe = () => {
+  const probe = (checkScriptHost = true) => {
+    const request = JSON.stringify({ op: 'list', checkScriptHost }) + '\n{}'
     const response = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', bridge], { input: request, encoding: 'utf8' })
     return JSON.parse(response.split('\n')[0]).blockedBy
   }
@@ -38,6 +38,7 @@ function checkScriptHostPolicy() {
   execFileSync('reg.exe', ['add', key, '/v', 'Enabled', '/t', 'REG_DWORD', '/d', '0', '/f', view])
   try {
     assert.equal(probe().toLowerCase(), ('HKEY_CURRENT_USER\\' + subkey + '\\Enabled').toLowerCase())
+    assert.equal(probe(false), null)
     execFileSync('reg.exe', ['add', key, '/v', 'Enabled', '/t', 'REG_DWORD', '/d', '1', '/f', view])
     assert.equal(probe(), null)
   } finally {
