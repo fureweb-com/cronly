@@ -33,6 +33,7 @@ try {
     const deadline = Date.now() + 10000
     while (Date.now() < deadline && !(existsSync(namedLog) && readFileSync(namedLog, 'utf8').includes('timer fired'))) await delay(100)
     assert.equal(run('logs', '--name', name).trim(), dir + '\ntimer fired')
+    assert.equal(run('logs', '--name', name, '--tail', '1'), 'timer fired\n')
     assert.equal(existsSync(log), false)
   } finally {
     run('remove', '--name', name)

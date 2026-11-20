@@ -70,7 +70,7 @@ cronly remove --name weekend-report
 
 - `add`、`run`、`logs`、`remove` には、同じ OS ユーザー、スケジューラー、ジョブ名を使います。既定のスケジューラーは OS ごとに決まっています。明示的に選ぶには、各呼び出しで `CRONLY_BACKEND` に `systemd`、`launchd`、`windows`、`cron` のいずれかを指定してください。`cronly --lang en doctor` は英語で診断結果を表示し、すべて正常なら 0、問題があれば 1 を返します。
 - systemd、launchd、Windows で `run` が返す 0 は、スケジューラーが実行要求を受理したことを示します。任意の cron バックエンドでは、登録時の作業ディレクトリ、ランタイム、PATH、出力先を使って直接実行し、ほかの環境変数はシェルから引き継ぎます。終了コードはスクリプトのものです。 この環境の違いは標準エラー出力でも通知します。
-- `logs` は過去の実行分も含め、標準出力と標準エラーのログ全体を表示します。ログファイルがまだなければ標準エラーに案内を出し、0 で終了します。特定の実行を確認するには、待ち時間に上限を設け、新しい時刻や完了メッセージが記録されたかを繰り返し確認します。`remove` の前にログを確認してください。削除後も既存のログファイルは `add` が表示したパスに残ります。
+- `logs` は過去の実行分も含め、標準出力と標準エラーのログ全体を表示します。 `--tail 20` で末尾の 20 行だけを読めます。ログファイルがまだなければ標準エラーに案内を出し、0 で終了します。特定の実行を確認するには、待ち時間に上限を設け、新しい時刻や完了メッセージが記録されたかを繰り返し確認します。`remove` の前にログを確認してください。削除後も既存のログファイルは `add` が表示したパスに残ります。
 
 <a id="migration"></a>
 
@@ -173,7 +173,7 @@ Cronly による crontab の変更は順番に処理されます。`crontab -e` 
 | --- | --- |
 | `cronly list` | ジョブの ID、名前、スケジュール、パス、ランタイムを表示します。 |
 | `cronly run --name weekday-report` | 登録済みジョブを一度実行します。 |
-| `cronly logs --name weekday-report` | ジョブのログを表示します。 |
+| `cronly logs --name weekday-report --tail 20` | ジョブログの末尾 20 行を表示します。 |
 | `cronly print` | 管理中の systemd ユニット、LaunchAgent の plist、Windows タスクの XML、または crontab ブロックの内容を表示します。 |
 | `cronly doctor` | スケジューラーの状態、スクリプトとランタイムの権限、ログのパスを確認します。問題があれば終了コード 1 を返します。 |
 | `cronly remove ./report.mjs` | このファイルの登録を削除します。 |
@@ -183,7 +183,7 @@ Cronly による crontab の変更は順番に処理されます。`crontab -e` 
 
 ```bash
 systemctl --user status cronly-68b547a7.timer
-tail -n 20 ~/.cronly/logs/68b547a7.log
+cronly logs --id 68b547a7 --tail 20
 ```
 
 日本語のヘルプは `cronly --lang ja --help` で確認できます。言語コードは `en`、`ko`、`ja`、`zh` です。既定の言語は `CRONLY_LANG` で指定できます。

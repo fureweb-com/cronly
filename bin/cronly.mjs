@@ -71,7 +71,7 @@ const KNOWN_FLAGS = {
   ]),
   remove: targetFlags,
   run: targetFlags,
-  logs: targetFlags,
+  logs: new Set([...targetFlags, 'tail']),
   list: new Set(['lang', 'help', 'version']),
   print: new Set(['lang', 'help', 'version']),
   doctor: new Set(['lang', 'help', 'version']),
@@ -142,7 +142,7 @@ try {
       rejectExtraArgs(command, args)
       const target = { id: flags.id, name: flags.name }
       if (command === 'run') process.exitCode = await run(args[0], target)
-      else if (command === 'logs') await logs(args[0], target)
+      else if (command === 'logs') await logs(args[0], { ...target, tail: flags.tail })
       else await remove(args[0], target)
       break
     }

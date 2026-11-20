@@ -70,7 +70,7 @@ cronly remove --name weekend-report
 
 - 调用 `add`、`run`、`logs` 和 `remove` 时，请使用同一操作系统账户、调度器和任务名称。默认调度器由操作系统决定。手动选择时，每次调用都要将 `CRONLY_BACKEND` 设为 `systemd`、`launchd`、`windows` 或 `cron`。`cronly --lang en doctor` 用英语输出诊断结果，检查全部通过时返回 0，发现问题时返回 1。
 - 在 systemd、launchd 和 Windows 上，`run` 返回 0 表示调度器已接受执行请求。使用可选的 cron 后端时，CLI 按注册时的工作目录、运行时、PATH 和输出设置在本地执行脚本，其他环境变量继承自当前 shell，退出码取自脚本。 Cronly 也会将这项环境提示写入标准错误。
-- `logs` 输出完整日志，包含历次运行的标准输出和标准错误。日志文件尚未创建时，会向标准错误输出提示并返回 0。要确认某次运行已完成，可设置超时并轮询新的时间戳或完成标记。在 `remove` 前可用命令查看日志，删除任务后已有日志文件仍保存在 `add` 显示的路径。
+- `logs` 输出完整日志，包含历次运行的标准输出和标准错误。可用 `--tail 20` 仅读取最后 20 行。日志文件尚未创建时，会向标准错误输出提示并返回 0。要确认某次运行已完成，可设置超时并轮询新的时间戳或完成标记。在 `remove` 前可用命令查看日志，删除任务后已有日志文件仍保存在 `add` 显示的路径。
 
 <a id="migration"></a>
 
@@ -173,7 +173,7 @@ Cronly 会依次处理自己对 crontab 的更改。如果也在用 `crontab -e`
 | --- | --- |
 | `cronly list` | 列出任务 ID、名称、计划、路径和运行时。 |
 | `cronly run --name weekday-report` | 执行一次已注册的任务。 |
-| `cronly logs --name weekday-report` | 输出任务日志。 |
+| `cronly logs --name weekday-report --tail 20` | 输出任务日志的最后 20 行。 |
 | `cronly print` | 输出受管理的 systemd 单元、LaunchAgent plist、Windows 任务 XML 或 crontab 任务块的原文。 |
 | `cronly doctor` | 检查调度器状态、脚本和运行时的权限，以及日志路径。检查失败时返回退出码 1。 |
 | `cronly remove ./report.mjs` | 删除这个文件的任务注册。 |
@@ -183,7 +183,7 @@ Cronly 会依次处理自己对 crontab 的更改。如果也在用 `crontab -e`
 
 ```bash
 systemctl --user status cronly-68b547a7.timer
-tail -n 20 ~/.cronly/logs/68b547a7.log
+cronly logs --id 68b547a7 --tail 20
 ```
 
 可用 `cronly --lang zh --help` 查看中文帮助。支持的语言代码为 `en`、`ko`、`ja` 和 `zh`。可通过 `CRONLY_LANG` 设置默认语言。

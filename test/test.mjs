@@ -8,7 +8,7 @@ import { withCrontabLock, reapAbandonedLock } from '../lib/lock.mjs'
 import { runSandboxedIntegration } from './helpers/integration-sandbox.mjs'
 import { decodeCronCommand } from './helpers/cron-command.mjs'
 import { spawn, spawnSync } from 'child_process'
-import { chmodSync, existsSync, readdirSync, utimesSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, readdirSync, utimesSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
@@ -3264,6 +3264,38 @@ await testAsync('cron: run and logs use registered settings and preserve exit co
   assert.match(ctx.cli(['run', legacy]).stderr, /SIGTERM/)
   rmSync(legacy)
   assert.match(ctx.cli(['run', legacy]).stderr, /ENOENT/)
+}))
+
+await testAsync('logs: bounded tails, early pipe close and output errors', () => withMockCrontabEnv({}, async ctx => {
+  const file = ctx.createScript('big.sh', 'echo ok')
+  assert.equal(ctx.cli(['add', file, '--name', 'big', '--reboot']).status, 0)
+  const log = join(ctx.logDir, makeId(file, 'big') + '.log')
+  const tail = n => ctx.cli(['logs', '--name', 'big', '--tail=' + n])
+  for (const value of ['', -1, '2.5', '1e2', '9007199254740992']) {
+    assert.equal(tail(value).status, 1)
+  }
+  for (const [content, n, expected] of [
+    ['', 1, ''], ['one', 0, ''], ['one', 10, 'one'], ['one\r\n마지막\r\n', 1, '마지막\r\n'],
+    ['one\ntwo\n\n', 1, '\n'], ['x\n' + '한'.repeat(30000) + '\nlast', 2, '한'.repeat(30000) + '\nlast'],
+  ]) {
+    writeFileSync(log, content)
+    const result = tail(n)
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(result.stdout, expected)
+  }
+  writeFileSync(log, 'first line\n' + 'x'.repeat(20 * 1024 * 1024))
+  const pipe = spawnSync('/bin/bash', ['-o', 'pipefail', '-c', '"$1" "$2" logs --name big | head -n 1', 'test', process.execPath, CLI], { encoding: 'utf8' })
+  assert.equal(pipe.status, 0, pipe.stderr)
+  assert.equal(pipe.stderr, '')
+  assert.equal(pipe.stdout, 'first line\n')
+  const failure = new Writable({ write(chunk, encoding, done) { done(new Error('output failed')) } })
+  await assert.rejects(() => readLogs(file, {}, failure), /output failed/)
+  const truncating = new Writable({ write(chunk, encoding, done) { writeFileSync(log, ''); done() } })
+  await readLogs(file, {}, truncating)
+  rmSync(log)
+  renameSync(ctx.logDir, ctx.logDir + '.saved')
+  writeFileSync(ctx.logDir, '')
+  assert.match(tail(1).stderr, /ENOTDIR/)
 }))
 
 await testAsync('cron: independent named and path-based schedules', () => withMockCrontabEnv({}, async ctx => {
