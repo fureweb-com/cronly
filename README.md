@@ -141,7 +141,7 @@ Each job has a `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` file and r
 
 Cronly registers tasks for the current user. The user must be signed in for tasks to run. `--reboot` runs at the next login. JavaScript uses Node.js and native `.exe` files run directly. Select another installed interpreter with `--runtime`.
 
-New tasks run without a console window and report the script’s exit code. Cronly keeps the shared launcher at `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js`. Repeat `add` to update a previously registered task.
+New tasks run without a console window and report the script’s exit code. Cronly keeps the shared launcher at `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js`. Repeat `add` to update a previously registered task. If policy disables Windows Script Host, `add` stops before registration and `doctor` names the registry setting.
 
 PowerShell checks its execution policy when a scheduled `.ps1` runs. Under `Restricted`, registration can succeed and the scheduled script can still log `UnauthorizedAccess`. The JavaScript example works under that policy. [Windows PowerShell execution policies](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
 

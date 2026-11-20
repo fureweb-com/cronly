@@ -141,7 +141,7 @@ CLI をアップグレードしても、登録済みのジョブはユーザー�
 
 タスクは登録したユーザーのログイン中に実行されます。`--reboot` は次回のログイン時に実行されます。JavaScript は Node.js で起動し、`.exe` は直接実行します。別のインタープリターはインストール後に `--runtime` で指定できます。
 
-新しく登録したタスクはコンソールを表示せず、スクリプトの終了コードを返します。共通のランチャーは `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js` に保存されます。既存タスクには `add` を再実行して適用します。
+新しく登録したタスクはコンソールを表示せず、スクリプトの終了コードを返します。共通のランチャーは `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js` に保存されます。既存タスクには `add` を再実行して適用します。 ポリシーで Windows Script Host が無効な場合、`add` は登録前に停止し、`doctor` は該当するレジストリ設定を表示します。
 
 PowerShell は、予約した `.ps1` の実行時に実行ポリシーを適用します。`Restricted` の場合、タスクの登録に成功しても実行がブロックされ、ログに `UnauthorizedAccess` が記録されることがあります。上の JavaScript の例はこのポリシーでも動作します。[Windows PowerShell の実行ポリシー](https://learn.microsoft.com/ja-jp/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
 

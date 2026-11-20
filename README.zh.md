@@ -141,7 +141,7 @@ Cronly 为每个任务创建 `cronly-<id>.service` 和 `cronly-<id>.timer`。默
 
 任务在注册用户登录期间运行。`--reboot` 在下次登录时执行。JavaScript 使用 Node.js，`.exe` 直接执行。其他已安装的解释器可以通过 `--runtime` 指定。
 
-新注册的任务在后台运行，不弹出控制台窗口，并返回脚本的退出码。共享启动脚本保存在 `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js`。重新执行 `add` 即可更新已注册的任务。
+新注册的任务在后台运行，不弹出控制台窗口，并返回脚本的退出码。共享启动脚本保存在 `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js`。重新执行 `add` 即可更新已注册的任务。如果策略禁用了 Windows Script Host，`add` 会在注册前停止，`doctor` 会显示相应的注册表设置。
 
 PowerShell 会在执行计划中的 `.ps1` 时应用执行策略。策略为 `Restricted` 时，即使任务注册成功，脚本也会被阻止运行，日志中可能出现 `UnauthorizedAccess`。前面的 JavaScript 示例在此策略下也能运行。[Windows PowerShell 执行策略](https://learn.microsoft.com/zh-cn/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
 

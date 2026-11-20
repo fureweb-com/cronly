@@ -19,8 +19,35 @@ const account = execFileSync('whoami.exe', ['/user', '/fo', 'csv', '/nh'], { enc
 const sid = account.match(/S-1-[0-9-]+/)[0]
 const nativeName = jobId => 'Cronly-' + sid + '-' + jobId
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+function checkScriptHostPolicy() {
+  // Use the real bridge and registry view, with its lookup redirected to a
+  // disposable HKCU subkey so the account's actual Script Host policy stays in effect.
+  const subkey = 'Software\\Cronly-WSH-test-' + id
+  const key = 'HKCU\\' + subkey
+  const bridge = readFileSync(new URL('../lib/windows-tasks.ps1', import.meta.url), 'utf8')
+    .replace('SOFTWARE\\Microsoft\\Windows Script Host\\Settings', subkey)
+  const request = JSON.stringify({ op: 'list', checkScriptHost: true }) + '\n{}'
+  const probe = () => {
+    const response = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', bridge], { input: request, encoding: 'utf8' })
+    return JSON.parse(response.split('\n')[0]).blockedBy
+  }
+  const view = /64/.test(process.env.PROCESSOR_ARCHITEW6432 || process.env.PROCESSOR_ARCHITECTURE) ? '/reg:64' : '/reg:32'
+  assert.equal(spawnSync('reg.exe', ['query', key, view]).status, 1)
+  assert.equal(probe(), null)
+  execFileSync('reg.exe', ['add', key, '/v', 'Enabled', '/t', 'REG_DWORD', '/d', '0', '/f', view])
+  try {
+    assert.equal(probe().toLowerCase(), ('HKEY_CURRENT_USER\\' + subkey + '\\Enabled').toLowerCase())
+    execFileSync('reg.exe', ['add', key, '/v', 'Enabled', '/t', 'REG_DWORD', '/d', '1', '/f', view])
+    assert.equal(probe(), null)
+  } finally {
+    execFileSync('reg.exe', ['delete', key, '/f', view])
+  }
+}
+
 let registered = false
 try {
+  checkScriptHostPolicy()
   writeFileSync(file, "console.log(require('fs').readFileSync('message.txt','utf8')); console.error('stderr works')")
   writeFileSync(join(dir, 'message.txt'), 'scheduled 한글')
   run('add', file, '--reboot')

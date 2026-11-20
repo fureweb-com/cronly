@@ -141,7 +141,7 @@ CLI를 업그레이드해도 기존 작업은 사용자 crontab에 남아요. �
 
 작업은 등록한 사용자가 로그인한 동안 실행돼요. `--reboot` 작업은 다음 로그인 때 실행돼요. JavaScript는 Node.js로, `.exe`는 직접 실행해요. 다른 인터프리터는 설치한 뒤 `--runtime`으로 지정할 수 있어요.
 
-새로 등록한 작업은 콘솔 창 없이 실행되고 스크립트의 종료 코드를 반환해요. 공용 실행기는 `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js`에 저장돼요. 기존 작업에는 `add`를 다시 실행하면 적용돼요.
+새로 등록한 작업은 콘솔 창 없이 실행되고 스크립트의 종료 코드를 반환해요. 공용 실행기는 `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js`에 저장돼요. 기존 작업에는 `add`를 다시 실행하면 적용돼요. 정책이 Windows Script Host를 차단하면 `add`는 작업 등록 전에 중단되고 `doctor`는 해당 레지스트리 설정을 표시해요.
 
 PowerShell은 예약된 `.ps1`을 실행할 때 실행 정책을 적용해요. `Restricted`에서는 등록에 성공해도 실제 실행이 차단되어 로그에 `UnauthorizedAccess`가 기록될 수 있어요. 위 JavaScript 예제는 이 정책에서도 실행돼요. [Windows PowerShell 실행 정책](https://learn.microsoft.com/ko-kr/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
 

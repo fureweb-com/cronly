@@ -2,6 +2,25 @@
 $ErrorActionPreference = 'Stop'
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+
+function Get-DisabledScriptHostKey {
+    $path = 'SOFTWARE\Microsoft\Windows Script Host\Settings'
+    # Task Scheduler starts the native System32 host even when the CLI is 32-bit.
+    $view = if ([Environment]::Is64BitOperatingSystem) { 'Registry64' } else { 'Registry32' }
+    foreach ($hive in 'LocalMachine', 'CurrentUser') {
+        $root = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
+        try {
+            $key = $root.OpenSubKey($path)
+            if ($null -ne $key) {
+                try {
+                    $enabled = $key.GetValue('Enabled')
+                    if ($enabled -is [int] -and $enabled -eq 0) { return ($key.Name + '\Enabled') }
+                } finally { $key.Dispose() }
+            }
+        } finally { $root.Dispose() }
+    }
+}
+
 # The scheduler canonicalizes XML (including ISO durations and default values).
 # Load both definitions through the same COM serializer before comparing them.
 function Get-ExecutionDefinition([string]$xml) {
@@ -31,6 +50,7 @@ try {
     $scheduler = New-Object -ComObject Schedule.Service
     $scheduler.Connect()
     $folder = $scheduler.GetFolder('\')
+    $blockedBy = if ($request.checkScriptHost) { Get-DisabledScriptHostKey }
     if ($request.op -eq 'list') {
         $entries = @(foreach ($task in $folder.GetTasks(1)) {
             if (!$task.Name.StartsWith($prefix)) { continue }
@@ -47,7 +67,7 @@ try {
                 result = $task.LastTaskResult
             }
         })
-        [Console]::WriteLine((ConvertTo-Json -Compress -Depth 4 -InputObject @{sid=$sid; entries=$entries}))
+        [Console]::WriteLine((ConvertTo-Json -Compress -Depth 4 -InputObject @{sid=$sid; entries=$entries; blockedBy=$blockedBy}))
         [Console]::Out.Flush()
         $expected = [Console]::In.ReadToEnd() | ConvertFrom-Json
         $changed = @(foreach ($entry in $entries) {
@@ -70,7 +90,10 @@ try {
         switch ($request.op) {
             'create' { $null = $folder.RegisterTask($name, $request.xml, 2, $sid, $null, 3, $null) }
             'update' { $null = $folder.RegisterTask($name, $request.xml, 4, $sid, $null, 3, $null) }
-            'run' { $null = $existing.Run($null) }
+            'run' {
+                if ($blockedBy) { [Console]::Write($blockedBy) }
+                else { $null = $existing.Run($null) }
+            }
             'remove' { $folder.DeleteTask($name, 0) }
             default { throw 'Unknown Cronly task operation' }
         }

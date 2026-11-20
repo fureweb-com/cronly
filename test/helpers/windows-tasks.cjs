@@ -8,12 +8,13 @@ async function main() {
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity })[Symbol.asyncIterator]()
   const req = JSON.parse((await lines.next()).value)
   fs.appendFileSync(file + '.ops', req.op + '\n')
+  const blockedBy = req.checkScriptHost && fs.existsSync(file + '.policy') && fs.readFileSync(file + '.policy', 'utf8')
   if (req.op === 'list') {
     if (fs.existsSync(file + '.malformed')) {
       process.stdout.write('invalid JSON\r\n')
       return
     }
-    process.stdout.write(JSON.stringify({ sid: 'S-1-5-21-1234', entries }) + '\r\n')
+    process.stdout.write(JSON.stringify({ sid: 'S-1-5-21-1234', entries, blockedBy }) + '\r\n')
     const expected = JSON.parse((await lines.next()).value)
     const changed = entries.filter(entry => expected[entry.id] && expected[entry.id] !== entry.xml)
     process.stdout.write(JSON.stringify(changed.map(entry => entry.id)))
@@ -22,7 +23,8 @@ async function main() {
   const before = entries.find(entry => entry.id === req.id)
   if (req.op === 'create' ? before : before.source !== 'Cronly/v1' || before.xml !== req.previousXml) throw new Error('Concurrent change')
   if (req.op === 'run') {
-    fs.writeFileSync(file + '.last-run', before.id)
+    if (blockedBy) process.stdout.write(blockedBy)
+    else fs.writeFileSync(file + '.last-run', before.id)
     process.exit(0)
   }
   if (req.op !== 'create') entries.splice(entries.indexOf(before), 1)
