@@ -22,14 +22,14 @@ Cronly 使用 **Linux 的 systemd 用户定时器**、**macOS 的 launchd Launch
 
 ## 安装并注册第一个任务
 
-需要 Node.js 14.8.0 或更高版本。2.0.0 发布到 npm 前，可直接从发布分支安装。在 Windows 上，可在命令提示符中运行以下示例。如果 PowerShell 的执行策略阻止 npm 的启动脚本，请使用 `npm.cmd`、`npx.cmd` 和 `cronly.cmd`。
+需要 Node.js 14.8.0 或更高版本。在 Windows 上，可在命令提示符中运行以下示例。如果 PowerShell 的执行策略阻止 npm 的启动脚本，请使用 `npm.cmd`、`npx.cmd` 和 `cronly.cmd`。
 
 ```bash
-npm install --global https://github.com/fureweb-com/cronly/archive/refs/heads/codex/release-2.0.0.tar.gz
+npm install --global @fureweb/cronly@2.0.0
 cronly --version
 ```
 
-确认输出的版本为 `2.0.0`。如果已有源码，也可以在项目目录中先运行 `npm pack`，再运行 `npm install --global ./fureweb-cronly-2.0.0.tgz`。2.0.0 发布到 npm 后，可用 `npm install --global @fureweb/cronly@2.0.0` 安装，或用 `npx @fureweb/cronly@2.0.0 --help` 查看帮助。
+确认输出的版本为 `2.0.0`。可用 `npx @fureweb/cronly@2.0.0 --help` 查看帮助。如果已有源码，也可以在项目目录中先运行 `npm pack`，再运行 `npm install --global ./fureweb-cronly-2.0.0.tgz`。
 
 在准备用来存放任务的空目录中，将下面一行保存为 `report.mjs`。
 

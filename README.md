@@ -22,14 +22,14 @@ Upgrading a Linux machine with existing jobs? [Move your 1.x cron jobs to system
 
 ## Install and schedule your first job
 
-Cronly requires Node.js 14.8.0 or later. Before 2.0.0 is published on npm, install directly from the release branch. On Windows, use Command Prompt for these examples. In PowerShell, use `npm.cmd`, `npx.cmd`, and `cronly.cmd` if the execution policy blocks npm's PowerShell launchers.
+Cronly requires Node.js 14.8.0 or later. On Windows, use Command Prompt for these examples. In PowerShell, use `npm.cmd`, `npx.cmd`, and `cronly.cmd` if the execution policy blocks npm's PowerShell launchers.
 
 ```bash
-npm install --global https://github.com/fureweb-com/cronly/archive/refs/heads/codex/release-2.0.0.tar.gz
+npm install --global @fureweb/cronly@2.0.0
 cronly --version
 ```
 
-The version should be `2.0.0`. From a local checkout, you can also run `npm pack` followed by `npm install --global ./fureweb-cronly-2.0.0.tgz`. Once 2.0.0 is on npm, use `npm install --global @fureweb/cronly@2.0.0` or `npx @fureweb/cronly@2.0.0 --help`.
+The version should be `2.0.0`. To view help with npx, run `npx @fureweb/cronly@2.0.0 --help`. From a local checkout, run `npm pack` followed by `npm install --global ./fureweb-cronly-2.0.0.tgz`.
 
 In an empty directory where you intend to keep the job, save this line as `report.mjs`.
 

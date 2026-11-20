@@ -22,14 +22,14 @@ Linux에서 이미 작업을 예약해 두었다면 [1.x cron 작업을 systemd�
 
 ## 설치하고 첫 작업 등록하기
 
-Node.js 14.8.0 이상이 필요해요. 2.0.0이 npm에 배포되기 전에는 릴리스 브랜치에서 바로 설치할 수 있어요. Windows에서는 아래 명령을 명령 프롬프트에서 실행하세요. PowerShell 실행 정책이 npm의 실행 스크립트를 차단하면 `npm.cmd`, `npx.cmd`, `cronly.cmd`를 사용하세요.
+Node.js 14.8.0 이상이 필요해요. Windows에서는 아래 명령을 명령 프롬프트에서 실행하세요. PowerShell 실행 정책이 npm의 실행 스크립트를 차단하면 `npm.cmd`, `npx.cmd`, `cronly.cmd`를 사용하세요.
 
 ```bash
-npm install --global https://github.com/fureweb-com/cronly/archive/refs/heads/codex/release-2.0.0.tar.gz
+npm install --global @fureweb/cronly@2.0.0
 cronly --version
 ```
 
-출력되는 버전은 `2.0.0`이에요. 소스를 이미 내려받았다면 프로젝트 디렉터리에서 `npm pack`을 실행한 뒤 `npm install --global ./fureweb-cronly-2.0.0.tgz`로 설치할 수도 있어요. npm 배포 후에는 `npm install --global @fureweb/cronly@2.0.0`으로 설치하거나 `npx @fureweb/cronly@2.0.0 --help`로 도움말을 볼 수 있어요.
+출력되는 버전은 `2.0.0`이에요. `npx @fureweb/cronly@2.0.0 --help`로 도움말을 볼 수 있어요. 소스를 내려받았다면 프로젝트 디렉터리에서 `npm pack`을 실행한 뒤 `npm install --global ./fureweb-cronly-2.0.0.tgz`로 설치할 수도 있어요.
 
 작업 파일을 보관할 빈 디렉터리에 다음 한 줄을 `report.mjs`로 저장하세요.
 

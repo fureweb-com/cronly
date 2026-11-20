@@ -22,14 +22,14 @@ Cronly は、**Linux の systemd ユーザータイマー**、**macOS の launch
 
 ## インストールと最初のジョブ
 
-Node.js 14.8.0 以降が必要です。npm で 2.0.0 が公開されるまでは、リリースブランチから直接インストールできます。Windows では以下の例をコマンド プロンプトで実行してください。PowerShell の実行ポリシーで npm の起動スクリプトがブロックされる場合は、`npm.cmd`、`npx.cmd`、`cronly.cmd` を使います。
+Node.js 14.8.0 以降が必要です。Windows では以下の例をコマンド プロンプトで実行してください。PowerShell の実行ポリシーで npm の起動スクリプトがブロックされる場合は、`npm.cmd`、`npx.cmd`、`cronly.cmd` を使います。
 
 ```bash
-npm install --global https://github.com/fureweb-com/cronly/archive/refs/heads/codex/release-2.0.0.tar.gz
+npm install --global @fureweb/cronly@2.0.0
 cronly --version
 ```
 
-バージョンが `2.0.0` と表示されることを確認してください。手元にソースがある場合は、プロジェクトディレクトリで `npm pack`、`npm install --global ./fureweb-cronly-2.0.0.tgz` の順に実行してもインストールできます。npm での公開後は `npm install --global @fureweb/cronly@2.0.0` でインストールでき、`npx @fureweb/cronly@2.0.0 --help` でヘルプを確認できます。
+バージョンが `2.0.0` と表示されることを確認してください。`npx @fureweb/cronly@2.0.0 --help` でヘルプを確認できます。手元にソースがある場合は、プロジェクトディレクトリで `npm pack`、`npm install --global ./fureweb-cronly-2.0.0.tgz` の順に実行してもインストールできます。
 
 ジョブ用の空のディレクトリに、次の1行を `report.mjs` として保存します。
 
