@@ -1,314 +1,207 @@
-# Cronly
+# Cronly 2.0.0
 
 [![npm version](https://img.shields.io/npm/v/%40fureweb%2Fcronly?logo=npm)](https://www.npmjs.com/package/@fureweb/cronly)
-[![npm downloads](https://img.shields.io/npm/dm/%40fureweb%2Fcronly?logo=npm)](https://www.npmjs.com/package/@fureweb/cronly)
 [![license](https://img.shields.io/github/license/fureweb-com/cronly)](https://github.com/fureweb-com/cronly/blob/main/LICENSE)
 [![tests](https://github.com/fureweb-com/cronly/actions/workflows/ci.yml/badge.svg)](https://github.com/fureweb-com/cronly/actions/workflows/ci.yml)
 [![coverage](https://codecov.io/github/fureweb-com/cronly/graph/badge.svg?branch=main)](https://app.codecov.io/github/fureweb-com/cronly)
-[![stars](https://img.shields.io/github/stars/fureweb-com/cronly?style=social)](https://github.com/fureweb-com/cronly/stargazers)
 
-轻松调度脚本 — 无需 cron 语法。
-直接表达你的意思：每天 8 点、工作日 9 点、每 4 小时。
-也可直接使用 cron expression。macOS 使用 launchd，Linux 使用 cron。
+[English](./README.md) | [한국어](./README.ko.md) | [日本語](./README.ja.md) | **中文**
 
-[English](./README.md) | [한국어](./README.ko.md) | [日本語](./README.ja.md) | **[中文](./README.zh.md)**
+Cronly 使用 **Linux 的 systemd 用户定时器**、**macOS 的 launchd LaunchAgent** 和 **Windows 内置的任务计划程序**来定时执行脚本。Linux 的 systemd 用户管理器运行时，无需安装 Cronie 或 `crontab`。Cronly 也没有 npm 运行时依赖。
 
-## 1 分钟上手
+如果 Linux 上已经有定时任务，请先查看[如何将 1.x 的 cron 任务迁移到 systemd](#migration)。
+
+## 运行条件
+
+| 平台 | 所需系统组件 |
+| --- | --- |
+| Linux | systemd 237 或更高版本的用户管理器、`systemctl --user`、`/bin/sh` |
+| macOS | 图形登录会话、`launchctl`，以及检查旧任务所用的系统 `crontab` 命令 |
+| Windows | 已登录的用户会话、任务计划程序服务、Windows PowerShell 5.1、Windows Script Host（JScript） |
+| 可选 cron（Unix） | `crontab`、运行中的 cron 调度器、`/bin/sh` |
+
+## 安装并注册第一个任务
+
+需要 Node.js 14.8.0 或更高版本。在 Windows 上，可在命令提示符中运行以下示例。如果 PowerShell 的执行策略阻止 npm 的启动脚本，请使用 `npm.cmd`、`npx.cmd` 和 `cronly.cmd`。
 
 ```bash
-# 每天 8:00 运行
-cronly add ./daily-report.mjs --daily 08:00
-# 相同含义的 cron expression
-cronly add ./daily-report.mjs --schedule "0 8 * * *"
+npm install --global @fureweb/cronly@2.0.0
+cronly --version
+```
 
-# 工作日 9:00 运行
-cronly add ./notify.mjs --weekdays --at 09:00
-# 相同含义的 cron expression
-cronly add ./notify.mjs --schedule "0 9 * * 1-5"
+确认输出的版本为 `2.0.0`。可用 `npx @fureweb/cronly@2.0.0 --help` 查看帮助。如果已有源码，也可以在项目目录中先运行 `npm pack`，再运行 `npm install --global ./fureweb-cronly-2.0.0.tgz`。
 
-# 每 4 小时运行
-cronly add ./sync.mjs --every-hours 4
-# 相同含义的 cron expression
-cronly add ./sync.mjs --schedule "0 */4 * * *"
+在准备用来存放任务的空目录中，将下面一行保存为 `report.mjs`。
 
-# 每周六 0:00 运行
-cronly add ./weekly-cleanup.mjs --weekly sat --at 00:00
-# 相同含义的 cron expression
-cronly add ./weekly-cleanup.mjs --schedule "0 0 * * 6"
+```js
+console.log(new Date().toISOString())
+```
 
-# 查看这个工具管理的条目
+在同一目录中注册工作日上午 9 点的计划，然后立即执行一次。
+
+```bash
+cronly add ./report.mjs --name weekday-report --weekdays --at 09:00
 cronly list
+cronly run --name weekday-report
 ```
 
-适合这些场景：
+运行 `cronly logs --name weekday-report` 查看输出。如果首次查询为空，只需再次查询日志。出现新的 UTC 时间戳即表示脚本已执行。要停止这个示例任务，运行 `cronly remove --name weekday-report`。
 
-- 想用 `--daily`、`--weekdays`、`--every-hours` 这样直观的标志来调度脚本
-- 不想记 cron 语法也能设置常见调度
-- 复杂场景下想直接使用 cron expression（`--schedule "0 */6 * * 1-3"`）
-- 不想手动编辑其他已有的 crontab 条目
-- 想对同一个文件重复执行 `add` 来更新调度
+如果脚本位于 `/home/lee/jobs/report.mjs`，Linux 上的任务列表会显示如下内容。
 
-## 为什么需要？
-
-使用 `crontab -e` 手动管理会导致以下问题：
-
-- 不小心将同一脚本注册两次
-- 难以一眼判断哪个条目对应哪个脚本
-- 注册、修改、删除时可能误改其他 cron 条目
-- 脚本路径变更时忘记同步 crontab
-
-**Cronly** 解决了这些问题：
-
-| 手动管理 crontab | Cronly |
-|---|---|
-| 可能重复注册 | 同一文件自动去重（包括符号链接和大小写差异） |
-| 可能误编辑其他条目 | 仅修改管理块，完全隔离 |
-| 难以识别条目 | 通过元数据注释识别 |
-| 变更时需手动同步 | `add` 以 upsert 方式运行 |
-
-## 特性
-
-- 零外部 npm 依赖 — 仅使用 Node.js 内置模块
-- 无需独立 DB、服务器或守护进程 — 以 LaunchAgent 文件或 crontab 为管理源
-- 管理条目带有元数据注释，与现有手动条目完全隔离
-- 包含空格、单引号和 `%` 的路径会被安全地进行 shell 引用处理
-- 任务在脚本所在目录中运行，输出记录到 `~/.cronly/logs/<id>.log`
-- 支持 cron 别名（`@reboot`、`@daily`、`@weekly` 等）
-- 基于 ESM（`"type": "module"`）
-- Node.js >= 14.8.0
-
-## 安装
-
-```bash
-# 从 npm 安装
-npm install -g @fureweb/cronly
-
-# 无需安装直接使用
-npx @fureweb/cronly
-
-# 本地开发
-git clone https://github.com/fureweb-com/cronly.git
-cd cronly
-npm link
+```text
+  68b547a7  [weekday-report]  0 9 * * 1-5      /home/lee/jobs/report.mjs  (node, systemd)
 ```
 
-全局安装后，运行命令仍然是 `cronly`。
+## 命名计划
 
-## macOS 和 Linux 调度器
+同一脚本可以注册多个计划。名称区分大小写，在当前用户选定的调度器内唯一。名称长度为 1～64 个字符，以 Unicode 字母（含汉字）或数字开头，后续还可使用 `.`、`_` 和 `-`。
 
-macOS 默认使用用户级 `launchd` LaunchAgent，Linux 使用 cron。命令和计划选项保持一致。macOS 为每个任务创建 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist`，直接传递执行参数，不经过 shell。注册失败时恢复先前配置。Cronly 只管理与其写入内容完全一致的 plist：手动修改过的文件会被跳过，并在 `list`、`print`、`doctor` 中提示，不影响其他任务。请用 `cronly add` 重新注册对应脚本，或用 `cronly remove --id <id>` 删除。
+用同一文件和名称再次运行 `add` 即可更新该计划。Cronly 也能识别指向同一文件的符号链接。省略名称时会单独注册一个按路径管理的计划。调用 `run`、`logs` 或 `remove` 时，从文件路径、`--name`、`--id` 中选择一项。如果一个路径匹配多个计划，请用名称或 ID 选择其中一个。
 
-LaunchAgent 需要 GUI 登录会话，并在该用户登录期间运行。macOS 的 `--reboot`/`@reboot` 在注册、重新注册及登录时执行；cron 保留开机执行语义。睡眠期间错过的日历任务可能在唤醒时合并执行一次。受保护文件仍受 macOS 权限限制。
-
-列表、范围、步长及别名会转换为原生日历计划，并保留日期和星期的 OR 语义。`0 0 */2 * 1` 这类带步长的日期通配符与受限星期组合，或相反组合，无法精确表达，因此拒绝注册。超过 4,096 个日历组合的计划也会被拒绝。请简化计划或明确指定 `CRONLY_BACKEND=cron`。
-
-旧 cron 任务不会自动迁移。`list`、`print`、`doctor` 会提示旧任务，并阻止同一文件在两个调度器中重复注册。迁移示例：
-
-```bash
-CRONLY_BACKEND=cron cronly list
-CRONLY_BACKEND=cron cronly remove ./job.mjs
-cronly add ./job.mjs --daily 08:00
-```
-
-使用 `CRONLY_BACKEND=cron|launchd` 可明确选择调度器。`CRONLY_HOME` 只改变日志位置，不影响默认 LaunchAgents 目录。测试可用 `CRONLY_LAUNCHD_DIR` 隔离 plist；位于 `~/Library/LaunchAgents` 之外的文件不会在下次登录时自动加载。
-
-## 使用方法
-
-### 注册脚本
-
-```bash
-# 每天 2:00 运行
-cronly add ./backup.sh --daily 02:00
-
-# 每 10 分钟运行
-cronly add ./report.mjs --every-minutes 10
-
-# 周一、三、五 9:00 运行
-cronly add ./class.mjs --days mon,wed,fri --at 09:00
-
-# 周末 10:00 运行
-cronly add ./weekend-job.mjs --weekends --at 10:00
-
-# 开机时运行一次
-cronly add ./startup.sh --reboot
-
-# 显式指定运行时
-cronly add ./custom-binary --daily 08:00 --runtime exec
-```
-
-`--runtime` 也可以指定其他解释器的名称或路径（例如 `--runtime python3`）。执行 `add` 时会解析为绝对路径并记录，因此 cron 也能找到它。选项可以写成 `--daily 08:00` 或 `--daily=08:00`。
-
-省略 `--runtime` 时，`.js`、`.mjs`、`.cjs` 文件用 Node.js 运行，`.sh` 文件则遵循其 `#!` 行。`#!/bin/bash` 或 `#!/usr/bin/env bash` 用该解释器运行，解释器会在执行 `add` 时解析为绝对路径并记录。`#!/bin/bash -e`、`#!/bin/busybox sh` 这类带参数的行，在脚本有执行权限时通过直接执行脚本来原样生效；没有执行权限时其中的选项不会生效。面向 `sh` 的脚本和没有 `#!` 行的脚本用 `/bin/sh` 运行，`--runtime sh` 始终使用 `/bin/sh`。
-
-对同一文件再次执行 `add` 时，**以更新而非新增方式运行**：
-
-```bash
-# 首次：注册
-cronly add ./backup.sh --daily 02:00
-
-# 再次：更改调度（不会重复注册）
-cronly add ./backup.sh --daily 03:00
-```
-
-### 简易调度模式
-
-| 标志 | 示例 | cron 转换结果 |
-|------|------|--------------|
-| `--daily HH:MM` | `--daily 08:00` | `0 8 * * *` |
-| `--every-hours N` | `--every-hours 4` | `0 */4 * * *` |
-| `--every-minutes N` | `--every-minutes 10` | `*/10 * * * *` |
-| `--weekly 星期 --at HH:MM` | `--weekly mon --at 10:00` | `0 10 * * 1` |
-| `--days 星期,... --at HH:MM` | `--days mon,wed,fri --at 09:00` | `0 9 * * 1,3,5` |
-| `--weekdays --at HH:MM` | `--weekdays --at 08:30` | `30 8 * * 1-5` |
-| `--weekends --at HH:MM` | `--weekends --at 10:00` | `0 10 * * 0,6` |
-| `--reboot` | `--reboot` | `@reboot` |
-
-星期标记：`sun`、`mon`、`tue`、`wed`、`thu`、`fri`、`sat`（不区分大小写）
-
-`--every-hours` 接受 1、2、3、4、6、8、12，`--every-minutes` 接受 1、2、3、4、5、6、10、12、15、20、30。cron 会在每天（小时）或每小时（分钟）重新计数 `*/N`，其他值无法按固定间隔重复。如果仍然需要，请使用 `--schedule`。
-
-### Cron expression 直接输入（高级）
-
-以上模式无法覆盖的场景，可以用 `--schedule` 直接指定：
-
-```bash
-# 周一至周三每 6 小时
-cronly add ./report.mjs --schedule "0 */6 * * 1-3"
-
-# 每月 15 日 9:00
-cronly add ./monthly.mjs --schedule "0 9 15 * *"
-```
-
-### 查看列表
-
-```bash
+```sh
+cronly add ./report.mjs --name weekday-report --weekdays --at 10:00
+cronly add ./report.mjs --name weekend-report --weekends --at 11:00
 cronly list
+cronly remove --name weekend-report
 ```
 
-输出示例：
-```
-  a1b2c3d4  0 2 * * *        /home/user/backup.sh      (sh)
-  e5f6a7b8  */10 * * * *     /home/user/report.mjs     (node)
+## 在脚本和智能体中使用
+
+- 调用 `add`、`run`、`logs` 和 `remove` 时，请使用同一操作系统账户、调度器和任务名称。默认调度器由操作系统决定。手动选择时，每次调用都要将 `CRONLY_BACKEND` 设为 `systemd`、`launchd`、`windows` 或 `cron`。`cronly --lang en doctor` 用英语输出诊断结果，检查全部通过时返回 0，发现问题时返回 1。
+- 在 systemd、launchd 和 Windows 上，`run` 返回 0 表示调度器已接受执行请求。使用可选的 cron 后端时，CLI 按注册时的工作目录、运行时、PATH 和输出设置在本地执行脚本，其他环境变量继承自当前 shell，退出码取自脚本。 Cronly 也会将这项环境提示写入标准错误。
+- `logs` 输出完整日志，包含历次运行的标准输出和标准错误。可用 `--tail 20` 仅读取最后 20 行。日志文件尚未创建时，会向标准错误输出提示并返回 0。要确认某次运行已完成，可设置超时并轮询新的时间戳或完成标记。在 `remove` 前可用命令查看日志，删除任务后已有日志文件仍保存在 `add` 显示的路径。
+
+<a id="migration"></a>
+
+## 将 Linux 上的 1.x cron 任务迁移到 systemd
+
+升级 CLI 后，已有任务仍保存在用户的 crontab 中。迁移期间请保留 cron 并让它继续运行。在没有 systemd 用户管理器的机器上，可以为 Cronly 命令设置 `CRONLY_BACKEND=cron`，继续使用 cron。
+
+1. 用原来注册任务的账户确认可以连接 systemd 用户管理器。查看已有的 Cronly 任务，记下每个脚本的路径、计划和运行时。
+
+   ```bash
+   systemctl --user list-timers --all
+   CRONLY_BACKEND=cron cronly list
+   CRONLY_BACKEND=cron cronly print
+   ```
+
+2. 逐个迁移任务。以下示例假设 `report.mjs` 原本由 Node.js 在工作日早上 9 点运行。请替换为刚记下的路径、计划和运行时。同一文件仍在 cron 中注册时，Cronly 会阻止它在 systemd 中重复注册。
+
+   ```bash
+   CRONLY_BACKEND=cron cronly remove ./report.mjs &&
+     CRONLY_BACKEND=systemd cronly add ./report.mjs --schedule '0 9 * * 1-5' --runtime node
+   ```
+
+   如果新任务注册失败，可用之前记录的设置，通过 `CRONLY_BACKEND=cron cronly add` 恢复 cron 任务。
+
+3. 检查已注册的任务和下次执行时间。systemd 的 `doctor` 会列出 cron 中剩余的任务，供参考。要卸载 cron 软件包，请先用 `crontab -l` 检查手动添加的任务，并确认机器上是否还有其他任务依赖 cron。
+
+   ```bash
+   CRONLY_BACKEND=systemd cronly list
+   systemctl --user list-timers --all 'cronly-*.timer'
+   CRONLY_BACKEND=systemd cronly doctor
+   ```
+
+## 设置执行时间
+
+每次运行 `add` 选择一种计划。时刻按调度器的本地时间填写，小时和分钟均为两位数字，格式为 `HH:MM`。星期用 `sun`、`mon`、`tue`、`wed`、`thu`、`fri`、`sat` 表示。
+
+| 执行时间 | 选项 |
+| --- | --- |
+| 每天 08:00 | `--daily 08:00` |
+| 每 4 小时 | `--every-hours 4` |
+| 每 10 分钟 | `--every-minutes 10` |
+| 每周六 10:00 | `--weekly sat --at 10:00` |
+| 周一、三、五 09:00 | `--days mon,wed,fri --at 09:00` |
+| 工作日 09:00 | `--weekdays --at 09:00` |
+| 周末 10:00 | `--weekends --at 10:00` |
+| 每月 15 日 09:00 | `--schedule "0 9 15 * *"` |
+| 启动时（具体时机见下文） | `--reboot` |
+
+`--every-hours` 可选 **1、2、3、4、6、8、12**，`--every-minutes` 可选 **1、2、3、4、5、6、10、12、15、20、30**。这些数值能将一天或一小时等分。其他计划可按分、时、日、月、星期的顺序编写表达式，加上引号后传给 `--schedule`。各数字字段支持通配符、列表、范围和步长。支持的别名为 `@hourly`、`@daily`、`@weekly`、`@monthly`、`@yearly`、`@annually` 和 `@reboot`。
+
+## 各调度器的运行方式
+
+### Linux · systemd
+
+以任务所属的账户运行 `systemctl --user list-timers --all`，可以检查当前会话是否能连接用户管理器。在 SSH 或 CI 会话中也可这样检查。
+
+Cronly 为每个任务创建 `cronly-<id>.service` 和 `cronly-<id>.timer`。默认位置是 `~/.config/systemd/user/`，如果 `XDG_CONFIG_HOME` 设为绝对路径，则存放在 `$XDG_CONFIG_HOME/systemd/user/`。日历定时器注册后就开始等待下次执行。触发时，如果上一次启动的服务仍在运行，本次会跳过。
+
+如果其中一个单元文件缺失或已被修改，可重新执行原来的 `add` 命令修复，或用 `cronly remove --id <id>` 删除。Cronly 会保留无法确认归属的文件。只要仍有一个原始单元，就可以按名称或脚本路径查看日志或删除任务。
+
+`--reboot` 任务在**用户管理器下次启动时**首次运行。如果服务器需要在开机时就执行任务，并在用户退出后继续调度，可为该账户运行 `loginctl enable-linger "$USER"` 以启用 linger。
+
+### macOS · launchd
+
+每个任务对应一个 `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` 文件，在用户的图形登录会话中运行。`--reboot` 任务在注册、重新注册和登录时运行。睡眠期间错过的日历计划可能在唤醒时合并执行一次。日历组合超过 4,096 个，或日期与星期的组合条件无法由 launchd 准确表达（例如 `0 0 */2 * 1`）时，Cronly 会在注册时报错。
+
+### Windows · 任务计划程序
+
+任务在注册用户登录期间运行。`--reboot` 在下次登录时执行。JavaScript 使用 Node.js，`.exe` 直接执行。其他已安装的解释器可以通过 `--runtime` 指定。
+
+任务在后台运行，不弹出控制台窗口，并返回脚本的退出码。共享启动脚本保存在 `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js`。如果策略禁用了 Windows Script Host，`add` 会在注册前停止，`doctor` 会显示相应的注册表设置。
+
+PowerShell 会在执行计划中的 `.ps1` 时应用执行策略。策略为 `Restricted` 时，即使任务注册成功，脚本也会被阻止运行，日志中可能出现 `UnauthorizedAccess`。前面的 JavaScript 示例在此策略下也能运行。[Windows PowerShell 执行策略](https://learn.microsoft.com/zh-cn/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
+
+```powershell
+Get-ExecutionPolicy
+cronly.cmd add .\report.mjs --name weekday-report --weekdays --at 09:00
 ```
 
-### 删除
+同时限制日期和星期的 cron 表达式，以及需要超过 48 个触发器的计划，均无法注册。日志默认追加到 `%USERPROFILE%\.cronly\logs\<id>.log`。
+
+如果在任务计划程序中修改了触发器、操作、运行账户、电池设置、时间限制或并发策略，`doctor` 会显示相应的任务名。请检查定义，确认属于 Cronly 后用 `cronly remove --id <id>` 删除并重新注册。
+
+### 可选的 cron 后端
+
+如果系统有用户 crontab 和执行它的 cron 调度器，可设置 `CRONLY_BACKEND=cron`。Cronly 管理用户 crontab 中带有自身标记的任务块。在 Linux 上，如果能读取进程列表，`doctor` 也会检查 cron 守护进程。
+
+Cronly 会依次处理自己对 crontab 的更改。如果也在用 `crontab -e` 编辑，请先结束编辑，再用 Cronly 添加或移除任务。cron 后端生成的单条命令最多为 999 字节。
+
+## 脚本环境与日志
+
+- 每个任务都从**脚本所在目录**启动，`./config.json` 等相对路径从该目录解析。
+- **JavaScript 文件**（`.js`、`.mjs` 和 `.cjs`）使用执行 `add` 的 Node.js。在 Unix 上，`.sh` 文件按首行的解释器声明（例如 `#!/bin/bash`）运行。没有声明时使用 `/bin/sh`。其他解释器可用 `--runtime python3` 等方式指定。要直接启动具有执行权限的文件，请使用 `--runtime exec`。对于 `#!/bin/bash -e` 这样的声明，请为脚本添加执行权限，以保留解释器选项。
+- Unix 任务的 **PATH** 依次包含注册时所用 Node.js 的目录、`/usr/bin` 和 `/bin`。如果移除了那个版本的 Node.js，请用新版本重新注册任务。 Windows 会在继承的 PATH 开头添加 Node.js 所在的目录。
+- 注册时会显示**日志路径**。标准输出和标准错误都会追加到 `~/.cronly/logs/<id>.log`。注册时设置 `CRONLY_HOME` 可将日志写入 `$CRONLY_HOME/logs/`，任务仍由同一用户的调度器管理。日志轮转需自行配置。
+
+## 查看和删除任务
+
+| 命令 | 作用 |
+| --- | --- |
+| `cronly list` | 列出任务 ID、名称、计划、路径和运行时。 |
+| `cronly run --name weekday-report` | 执行一次已注册的任务。 |
+| `cronly logs --name weekday-report --tail 20` | 输出任务日志的最后 20 行。 |
+| `cronly print` | 输出受管理的 systemd 单元、LaunchAgent plist、Windows 任务 XML 或 crontab 任务块的原文。 |
+| `cronly doctor` | 检查调度器状态、脚本和运行时的权限，以及日志路径。检查失败时返回退出码 1。 |
+| `cronly remove ./report.mjs` | 删除这个文件的任务注册。 |
+| `cronly remove --id 68b547a7` | 按 `list` 中显示的 ID 删除任务注册。 |
+
+要检查上方 Linux 示例的定时器状态和最近的脚本输出，可运行以下命令。
 
 ```bash
-# 按文件路径删除
-cronly remove ./backup.sh
-
-# 按 id 删除
-cronly remove --id a1b2c3d4
+systemctl --user status cronly-68b547a7.timer
+cronly logs --id 68b547a7 --tail 20
 ```
 
-### 原始输出
+可用 `cronly --lang zh --help` 查看中文帮助。支持的语言代码为 `en`、`ko`、`ja` 和 `zh`。可通过 `CRONLY_LANG` 设置默认语言。
+
+## 开发与测试
+
+Linux、macOS 和 Windows CI 使用 `.nvmrc` 固定的 Node.js LTS 版本。Linux 还会使用最低支持版本 14.8.0 运行真实的 systemd 集成测试。本地检查覆盖率时请使用固定的 LTS 版本。
 
 ```bash
-cronly print
-```
-
-输出受管理任务的 LaunchAgent plist 或 cron 块。
-
-### 环境检查
-
-```bash
-cronly doctor
-```
-
-检查 Node.js、脚本及运行时权限、日志写入权限和重复注册。macOS 还检查登录会话、LaunchAgent 加载状态及上次退出状态；cron 检查 crontab 访问；在 Linux 上还会检查 cron 守护进程（`cron`、`crond` 或 `fcron`）是否在运行，因为没有它 crontab 中的任务都不会执行。如果无法从进程列表判断（例如 `/proc` 隐藏了其他用户的进程），则跳过该检查；也可以把 `CRONLY_PROC_DIR` 设为不存在的目录来自行跳过。旧 cron 任务会显示迁移提示。任何检查失败均以退出码 1 结束。
-
-### macOS 权限对话框 (`CRONLY_BACKEND=cron`)
-
-在 macOS 上，没有完全磁盘访问权限的应用修改 crontab 时会弹出权限对话框，`cronly add` 和 `cronly remove` 会一直等待到你作出响应。对话框可能被其他窗口遮挡，因此如果耗时超过几秒，Cronly 会输出提示。若不想看到对话框，请为运行 Cronly 的应用授予完全磁盘访问权限（系统设置 > 隐私与安全性 > 完全磁盘访问权限）。
-
-## 调度任务的运行方式
-
-cron 以最精简的环境启动任务，因此在终端中正常运行的脚本，在 cron 中很容易静默失败。Cronly 会为每个任务做好设置，使其行为更接近手动运行：
-
-- **工作目录**：在脚本所在目录中运行，`.env`、`./config.json` 等相对路径可以正常解析。
-- **PATH**：把执行 `cronly add` 的 Node.js 所在目录放在最前面，后接 `/usr/bin:/bin`，因此 shell 脚本中可以调用 `node`、`npm`、`npx`。其他工具请使用绝对路径，或在脚本中设置 `PATH`。
-- **日志**：stdout 和 stderr 会追加到 `~/.cronly/logs/<id>.log`。可通过 `CRONLY_HOME` 更改基础目录。日志不会轮转。使用 cron 时，无法进入脚本目录的错误也会记录在这里。
-- **Node.js 版本**：任务使用注册时的 Node.js 可执行文件运行（例如 nvm 的版本目录）。删除该版本后，`cronly doctor` 会报告问题；请重新执行 `cronly add` 切换到当前版本。
-
-由旧版 Cronly 注册的条目，在重新执行 `cronly add` 之前会保留旧的命令格式。尤其是 1.0.1 及更早版本注册的 `.sh` 条目仍以 `/bin/sh` 运行；脚本指定了其他解释器的条目，`cronly doctor` 会给出提示。
-
-## 防重复注册机制
-
-1. 将脚本文件规范化为**绝对路径**（`path.resolve`）
-2. 使用绝对路径的 **SHA-256 哈希前8个字符**作为去重 id
-3. `add` 时会**替换**相同 id 的块，以及指向同一文件的块（相同 inode，例如符号链接或 macOS 上的大小写差异）（upsert）
-4. 否则**追加**新块
-
-cron 会按 `add` 时传入的路径运行，因此在 `current -> releases/v2` 这样的符号链接部署结构中，也会一直跟随链接。`remove <file>` 会删除该文件的所有条目。
-
-### crontab 内部格式 (cron)
-
-```crontab
-# 现有手动条目（不做修改）
-0 * * * * /usr/bin/some-other-job
-
-# [cronly:begin] id=a1b2c3d4 path=/home/user/backup.sh runtime=sh
-0 2 * * * { cd '/home/user' && PATH='/usr/local/bin:/usr/bin:/bin' '/bin/sh' '/home/user/backup.sh' ; } >> '/home/user/.cronly/logs/a1b2c3d4.log' 2>&1
-# [cronly:end] id=a1b2c3d4
-```
-
-使用 `# [cronly:begin]` / `# [cronly:end]` 块包裹，与其他手动条目完全隔离。
-
-## 测试
-
-```bash
+npm ci
 npm test
-# macOS: real launchd daemon, isolated jobs and cleanup
-npm run test:launchd
-# Explicit legacy cron integration test
-npm run test:integration
+npm run test:coverage
 ```
 
-## 项目结构
+集成测试使用真实的调度器。Linux 用户会话中运行 `npm run test:systemd`，macOS 图形会话中运行 `npm run test:launchd`。要测试 cron，请使用测试账户的 crontab 运行 `npm run test:integration`。
 
-```
-├── bin/cronly.mjs             # CLI 入口
-├── lib/
-│   ├── cli.mjs                # argv 解析
-│   ├── commands.mjs           # add/list/remove/print/doctor 实现
-│   ├── backend.mjs            # macOS launchd / Linux cron
-│   ├── launchd.mjs            # LaunchAgent lifecycle
-│   ├── launchd-schedule.mjs   # native calendar conversion
-│   ├── job.mjs                # shared runtime / diagnostics
-│   ├── crontab.mjs            # crontab 读写（child_process）
-│   ├── entry.mjs              # 条目构建/解析/去重
-│   ├── schedule.mjs           # 调度标志 → cron 表达式转换
-│   ├── i18n.mjs               # 语言检测、消息查找
-│   └── i18n/                  # 消息和帮助文本（en, ko, ja, zh）
-├── test/
-│   ├── test.mjs               # 单元测试
-│   ├── launchd-integration.mjs # real launchd daemon test
-│   └── integration.mjs        # 集成测试（实际 crontab）
-├── package.json
-└── LICENSE
-```
-
-## 未来扩展方向
-
-- **dry-run 模式**：使用 `--dry-run` 标志预览更改而不修改 crontab
-- **导入/导出**：以 JSON 备份/恢复管理条目
-- **日志选项**：自定义日志路径、日志轮转
-- **环境变量注入**：设置 cron 执行时的自定义环境变量
-- **MAILTO 设置**：每个条目的错误通知邮件设置
-- **分组/标签**：按组批量管理条目
-- **overlap 防止**：基于 flock 的并发执行防护
-
-## 限制
-
-- 支持 macOS 用户级 LaunchAgent 和 Linux 用户 crontab
-- 同一用户的 Cronly `add`/`remove` 按顺序处理。通过 `crontab -e` 或其他工具进行的并发编辑不受此锁保护。如果命令在持有锁时被强制终止，且其进程 ID 之后被其他进程重用，下一条命令会提示 `/tmp` 下的锁目录和该进程 ID；如果该进程既不是 `cronly` 也不是 `crontab`，请删除该目录。
-- 不支持 systemd timer 和 `/etc/cron.d`
-- 不支持分布式环境（仅限单机）
-- 不包含 overlap execution 防止
-- 日志会持续追加，不做轮转
-- 拒绝超过 999 字节的 cron 命令（Vixie 系 cron 会将其截断）
-- 不支持包含换行或 carriage return 字符的路径
+在已登录的 Windows 会话中，`npm.cmd test` 和 `npm.cmd run test:windows` 运行同一组任务计划程序测试。测试等待 1 分钟的定时触发器启动 JavaScript，随后按任务名称运行本地未签名的 `.ps1`。在 `Restricted` 策略下，即使 JavaScript 检查通过，最后一项 PowerShell 检查仍会失败。
 
 ## 许可证
 
-MIT
+[MIT](./LICENSE)

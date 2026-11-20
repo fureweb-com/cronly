@@ -26,7 +26,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
@@ -34,6 +34,14 @@ jobs:
 
       - name: Run tests with coverage
         run: npm run test:coverage
+
+      - name: Verify real systemd user timers
+        if: runner.os == 'Linux'
+        run: |
+          sudo loginctl enable-linger "$(id -un)"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          sudo systemctl start "user@$(id -u).service"
+          npm run test:systemd
 
       - name: Verify real launchd jobs
         if: runner.os == 'macOS'
@@ -48,3 +56,29 @@ jobs:
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true
+
+      - name: Set up the minimum supported Node.js
+        if: runner.os == 'Linux'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '14.8.0'
+
+      - name: Verify real user timers on Node.js 14.8.0
+        if: runner.os == 'Linux'
+        run: |
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          node test/systemd-integration.mjs
+
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Compare Script Host policy with wscript.exe in the disposable runner account
+        run: node test/windows-wsh-policy.mjs --disposable-account
+      - name: Verify real Windows scheduled tasks
+        run: npm run test:windows

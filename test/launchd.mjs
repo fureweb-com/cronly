@@ -1,3 +1,4 @@
+import { checkNamedJobs } from './named-jobs.mjs'
 import assert from 'assert/strict'
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
@@ -10,8 +11,29 @@ import { buildBlock, makeId } from '../lib/entry.mjs'
 import { withLaunchdSandbox } from './helpers/launchd-sandbox.mjs'
 
 export async function runLaunchdTests({ test, testAsync, captureLogs, withPatchedVersion }) {
-  test('scheduler: macOS 기본 launchd·다른 환경 기본 cron 및 명시 선택·잘못된 값 검증', () => {
-    assert.equal(getBackend('darwin', {}), 'launchd'); assert.equal(getBackend('linux', {}), 'cron')
+  await testAsync('launchd: independent named schedules', () => withLaunchdSandbox(ctx => checkNamedJobs(ctx.script(), captureLogs)))
+  await testAsync('launchd: kickstart a registered job and read its original log', () => withLaunchdSandbox(async ctx => {
+    const file = ctx.script()
+    await captureLogs(() => add(file, { schedule: '@daily', name: 'report' }))
+    assert.equal(ctx.cli(['run', '--name', 'report']).status, 0)
+    assert.match(ctx.calls(), /kickstart/)
+    const [job] = readLaunchdJobs()
+    writeFileSync(job.logPath, 'launchd output')
+    assert.equal(ctx.cli(['logs', '--id', job.id]).stdout, 'launchd output')
+    process.env.LAUNCHD_TEST_PRINT_PATH = join(ctx.dir, 'other.plist')
+    try {
+      assert.match(ctx.cli(['run', file]).stderr, /not loaded/)
+    } finally {
+      delete process.env.LAUNCHD_TEST_PRINT_PATH
+    }
+    ctx.setState({})
+    assert.match(ctx.cli(['run', file]).stderr, /not loaded/)
+    writeFileSync(job.plistPath, job.raw + 'edited')
+    assert.match(ctx.cli(['run', '--id', job.id]).stderr, /damaged registration/)
+  }))
+  test('scheduler: macOS 기본 launchd·Linux 기본 systemd·다른 환경 기본 cron 및 명시 선택·잘못된 값 검증', () => {
+    assert.equal(getBackend('darwin', {}), 'launchd'); assert.equal(getBackend('linux', {}), 'systemd')
+    assert.equal(getBackend('freebsd', {}), 'cron')
     assert.equal(getBackend('darwin', { CRONLY_BACKEND: 'cron' }), 'cron')
     assert.throws(() => getBackend('linux', { CRONLY_BACKEND: 'invalid' }), /Unsupported scheduler/)
     assert.equal(getLaunchdDir({}), join(homedir(), 'Library', 'LaunchAgents'))
@@ -220,7 +242,7 @@ export async function runLaunchdTests({ test, testAsync, captureLogs, withPatche
       assert.ok(report.logs.includes(`  ⚠ This file is not named like a Cronly LaunchAgent, so it is skipped: ${copy}. Delete it if it is a leftover copy.`))
       assert.ok(!report.logs.some(l=>l.includes('--id')))
       const pasted=ctx.cli(['remove','--id',job.id,'copy'])
-      assert.equal(pasted.status,1);assert.match(pasted.stderr,/either a file path or --id, not both/)
+      assert.equal(pasted.status,1);assert.match(pasted.stderr,/exactly one file path, --id or --name/)
       assert.equal(readLaunchdJobs().length,1);assert.ok(ctx.state()[job.label],'the valid job is kept')
       rmSync(copy)
 

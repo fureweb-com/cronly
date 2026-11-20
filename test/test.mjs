@@ -1,10 +1,15 @@
+import { testNativeFormats } from './native-formats.mjs'
+import { checkNamedJobs } from './named-jobs.mjs'
+import { runWindowsTests } from './windows.mjs'
+import { runSystemdTests } from './systemd.mjs'
 import { runLaunchdTests } from './launchd.mjs'
 import assert from 'assert/strict'
+import { Writable } from 'stream'
 import { withCrontabLock, reapAbandonedLock } from '../lib/lock.mjs'
 import { runSandboxedIntegration } from './helpers/integration-sandbox.mjs'
 import { decodeCronCommand } from './helpers/cron-command.mjs'
 import { spawn, spawnSync } from 'child_process'
-import { chmodSync, existsSync, readdirSync, utimesSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, readdirSync, utimesSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
@@ -20,6 +25,7 @@ import {
 } from '../lib/entry.mjs'
 import {
   add,
+  logs as readLogs,
   doctor,
   findEntryIssues,
   getCronPath,
@@ -59,6 +65,7 @@ const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'cronly.m
 const TEST_CRONLY_HOME = mkdtempSync(join(tmpdir(), 'cronly-home-'))
 process.env.CRONLY_HOME = TEST_CRONLY_HOME
 process.env.CRONLY_BACKEND = 'cron'
+process.env.XDG_CONFIG_HOME = join(TEST_CRONLY_HOME, 'config')
 process.env.CRONLY_LAUNCHD_DIR = join(TEST_CRONLY_HOME, 'agents')
 
 // doctor looks for a cron daemon in the process list. Give it a fixed list so
@@ -2312,7 +2319,7 @@ await testAsync('list: 엔트리 출력', async () => {
 })
 
 await testAsync('remove: 인자 없이 호출하면 거부', async () => {
-  await assert.rejects(() => remove(undefined, {}), /file path or --id/)
+  await assert.rejects(() => remove(undefined, {}), /file path, --id or --name/)
 })
 
 await testAsync('remove: 파일과 --id를 함께 주면 어느 쪽도 지우지 않고 거부', async () => {
@@ -2322,10 +2329,10 @@ await testAsync('remove: 파일과 --id를 함께 주면 어느 쪽도 지우지
     await captureLogs(async () => { await add(a, { schedule: '0 1 * * *' }); await add(b, { schedule: '0 2 * * *' }) })
     const before = ctx.readState()
     // 예전에는 --id가 조용히 이겨서, 붙여 넣은 인자가 나뉘면 의도하지 않은 작업이 지워졌다
-    await assert.rejects(() => remove(b, { id: makeId(a) }), /either a file path or --id, not both/)
+    await assert.rejects(() => remove(b, { id: makeId(a) }), /exactly one file path, --id or --name/)
     const result = ctx.cli(['remove', '--id', makeId(a), 'copy'])
     assert.equal(result.status, 1)
-    assert.match(result.stderr, /either a file path or --id, not both/)
+    assert.match(result.stderr, /exactly one file path, --id or --name/)
     assert.equal(ctx.readState(), before)
   })
 })
@@ -3218,6 +3225,96 @@ await testAsync('crontab 잠금: 부모가 강제 종료되어도 살아 있는 
   })
 })
 
+await testAsync('cron: run and logs use registered settings and preserve exit codes', () => withMockCrontabEnv({}, async ctx => {
+  const file = ctx.createScript("job '& %\\*.sh", 'printf "stdout %s\\n" "$PWD"; echo stderr >&2; exit 7')
+  const added = ctx.cli(['add', file, '--name', 'report', '--daily', '09:00'])
+  assert.equal(added.status, 0, added.stderr)
+  const log = join(ctx.logDir, makeId(file, 'report') + '.log')
+  assert.match(ctx.cli(['logs', file]).stderr, /No log file yet/)
+  const result = ctx.cli(['run', '--name', 'report'], { CRONLY_HOME: join(ctx.dir, 'another-home') })
+  assert.equal(result.status, 7, result.stderr)
+  assert.match(result.stderr, /current shell environment/)
+  assert.equal(result.stdout, '')
+  assert.match(ctx.cli(['logs', file]).stdout, /stdout .*\nstderr\n/)
+  writeFileSync(log, Buffer.alloc(256 * 1024, 97))
+  assert.equal(ctx.cli(['logs', '--name', 'report']).stdout.length, 256 * 1024)
+  let bytes = 0
+  const slowOutput = new Writable({
+    highWaterMark: 1,
+    write(chunk, encoding, done) { bytes += chunk.length; setImmediate(done) },
+  })
+  await readLogs(file, {}, slowOutput)
+  assert.equal(bytes, 256 * 1024)
+  rmSync(log)
+  mkdirSync(log)
+  assert.match(ctx.cli(['logs', file]).stderr, /EISDIR/)
+  const legacy = ctx.createScript('legacy.sh', '#!/bin/sh\nexit 3')
+  const oldBlock = buildBlock({ absolutePath: legacy, runtime: 'exec', schedule: '@daily' })
+  ctx.setState(oldBlock)
+  assert.equal(ctx.cli(['run', legacy]).status, 3)
+  assert.match(ctx.cli(['logs', legacy]).stderr, /no registered log/)
+  const before = parseBlocks(oldBlock)[0].command
+  ctx.setState(oldBlock.replace(before, "'/bin/sh' '" + legacy + "'"))
+  assert.equal(ctx.cli(['run', legacy]).status, 3)
+  ctx.setState(oldBlock.replace(before, 'echo changed layout'))
+  assert.match(ctx.cli(['run', legacy]).stderr, /cannot be run directly/)
+  ctx.setState(oldBlock.replace(before, ''))
+  assert.match(ctx.cli(['run', legacy]).stderr, /cannot be run directly/)
+  ctx.setState(oldBlock)
+  writeFileSync(legacy, '#!/bin/sh\nkill -TERM $$')
+  assert.match(ctx.cli(['run', legacy]).stderr, /SIGTERM/)
+  rmSync(legacy)
+  assert.match(ctx.cli(['run', legacy]).stderr, /ENOENT/)
+}))
+
+await testAsync('logs: bounded tails, early pipe close and output errors', () => withMockCrontabEnv({}, async ctx => {
+  const file = ctx.createScript('big.sh', 'echo ok')
+  assert.equal(ctx.cli(['add', file, '--name', 'big', '--reboot']).status, 0)
+  const log = join(ctx.logDir, makeId(file, 'big') + '.log')
+  const tail = n => ctx.cli(['logs', '--name', 'big', '--tail=' + n])
+  for (const value of ['', -1, '2.5', '1e2', '9007199254740992']) {
+    assert.equal(tail(value).status, 1)
+  }
+  for (const [content, n, expected] of [
+    ['', 1, ''], ['one', 0, ''], ['one', 10, 'one'], ['one\r\n마지막\r\n', 1, '마지막\r\n'],
+    ['one\ntwo\n\n', 1, '\n'], ['x\n' + '한'.repeat(30000) + '\nlast', 2, '한'.repeat(30000) + '\nlast'],
+  ]) {
+    writeFileSync(log, content)
+    const result = tail(n)
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(result.stdout, expected)
+  }
+  writeFileSync(log, 'first line\n' + 'x'.repeat(20 * 1024 * 1024))
+  const pipe = spawnSync('/bin/bash', ['-o', 'pipefail', '-c', '"$1" "$2" logs --name big | head -n 1', 'test', process.execPath, CLI], { encoding: 'utf8' })
+  assert.equal(pipe.status, 0, pipe.stderr)
+  assert.equal(pipe.stderr, '')
+  assert.equal(pipe.stdout, 'first line\n')
+  const failure = new Writable({ write(chunk, encoding, done) { done(new Error('output failed')) } })
+  await assert.rejects(() => readLogs(file, {}, failure), /output failed/)
+  const truncating = new Writable({ write(chunk, encoding, done) { writeFileSync(log, ''); done() } })
+  await readLogs(file, {}, truncating)
+  rmSync(log)
+  renameSync(ctx.logDir, ctx.logDir + '.saved')
+  writeFileSync(ctx.logDir, '')
+  assert.match(tail(1).stderr, /ENOTDIR/)
+}))
+
+await testAsync('cron: independent named and path-based schedules', () => withMockCrontabEnv({}, async ctx => {
+  const file = ctx.createScript('names.sh', 'echo ok')
+  await checkNamedJobs(file, captureLogs)
+  await captureLogs(() => add(file, { name: 'taken', schedule: '@daily' }))
+  const other = ctx.createScript('other.sh', '')
+  await assert.rejects(() => add(other, { name: 'taken', schedule: '@daily' }), /already in use/)
+  await assert.rejects(() => add(file, { name: 'bad name', schedule: '@daily' }), /1–64/)
+  assert.throws(() => makeId(file, 42), /1–64/)
+  const occupied = buildBlock({ absolutePath: other, schedule: '@daily', runtime: 'sh' }).replaceAll(makeId(other), makeId(file, 'collision'))
+  ctx.setState(occupied + '\n')
+  await assert.rejects(() => add(file, { name: 'collision', schedule: '@daily' }), /another registration/)
+}))
+
+testNativeFormats(test)
+await runWindowsTests({ test, testAsync, captureLogs, withPatchedVersion })
+await runSystemdTests({ test, testAsync, captureLogs, withPatchedVersion })
 await runLaunchdTests({ test, testAsync, captureLogs, withPatchedVersion })
 
 // ── 결과 ────────────────────────────────────────────────────────────────────

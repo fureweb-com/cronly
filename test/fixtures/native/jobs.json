@@ -1,0 +1,26 @@
+{
+  "systemd": {
+    "backend": "systemd",
+    "id": "e6213c6f",
+    "path": "/srv/reports/${HOME} %n/nightly.sh",
+    "name": "nightly",
+    "runtime": "sh",
+    "runtimePath": "/bin/sh",
+    "schedule": "0 8 * * 1-5",
+    "pathEnv": "/opt/$TOOLS/bin:/usr/bin:/bin",
+    "logPath": "/var/log/cronly/e6213c6f.log"
+  },
+  "windows": {
+    "backend": "windows",
+    "id": "e6213c6f",
+    "path": "C:\\Jobs\\report & 100%.cjs",
+    "name": "nightly",
+    "schedule": "0 8 * * 1-5",
+    "runtime": "node",
+    "runtimePath": "C:\\Program Files\\nodejs\\node.exe",
+    "args": ["C:\\Jobs\\report & 100%.cjs"],
+    "nodePath": "C:\\Program Files\\nodejs\\node.exe",
+    "logPath": "C:\\Logs\\e6213c6f.log",
+    "launcher": "wscript-v1"
+  }
+}

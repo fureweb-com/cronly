@@ -1,0 +1,5 @@
+# cronly-v2 eyJiYWNrZW5kIjoic3lzdGVtZCIsImlkIjoiZTYyMTNjNmYiLCJwYXRoIjoiL3Nydi9yZXBvcnRzLyR7SE9NRX0gJW4vbmlnaHRseS5zaCIsIm5hbWUiOiJuaWdodGx5IiwicnVudGltZSI6InNoIiwicnVudGltZVBhdGgiOiIvYmluL3NoIiwic2NoZWR1bGUiOiIwIDggKiAqIDEtNSIsInBhdGhFbnYiOiIvb3B0LyRUT09MUy9iaW46L3Vzci9iaW46L2JpbiIsImxvZ1BhdGgiOiIvdmFyL2xvZy9jcm9ubHkvZTYyMTNjNmYubG9nIn0=
+[Service]
+Type=oneshot
+Environment="PATH=/opt/$TOOLS/bin:/usr/bin:/bin"
+ExecStart=/bin/sh -c 'exec >>"$$1" 2>&1; cd "$$2" && shift 2 && exec "$$@"' cronly "/var/log/cronly/e6213c6f.log" "/srv/reports/$${HOME} %%n" "/bin/sh" "/srv/reports/$${HOME} %%n/nightly.sh"

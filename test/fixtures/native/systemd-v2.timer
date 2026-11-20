@@ -1,0 +1,7 @@
+# cronly-v2 eyJiYWNrZW5kIjoic3lzdGVtZCIsImlkIjoiZTYyMTNjNmYiLCJwYXRoIjoiL3Nydi9yZXBvcnRzLyR7SE9NRX0gJW4vbmlnaHRseS5zaCIsIm5hbWUiOiJuaWdodGx5IiwicnVudGltZSI6InNoIiwicnVudGltZVBhdGgiOiIvYmluL3NoIiwic2NoZWR1bGUiOiIwIDggKiAqIDEtNSIsInBhdGhFbnYiOiIvb3B0LyRUT09MUy9iaW46L3Vzci9iaW46L2JpbiIsImxvZ1BhdGgiOiIvdmFyL2xvZy9jcm9ubHkvZTYyMTNjNmYubG9nIn0=
+[Timer]
+OnCalendar=Mon,Tue,Wed,Thu,Fri *-*-* 8:0:00
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
