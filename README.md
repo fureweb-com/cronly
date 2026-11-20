@@ -69,7 +69,7 @@ cronly remove --name weekend-report
 ## Using Cronly from scripts and agents
 
 - Use the same OS account, scheduler, and job name for `add`, `run`, `logs`, and `remove`. Cronly selects the platform default. To select a backend explicitly, set `CRONLY_BACKEND` to `systemd`, `launchd`, `windows`, or `cron` on each invocation. `cronly --lang en doctor` prints English diagnostics and exits with 0 when all checks pass or 1 when a check fails.
-- On systemd, launchd, and Windows, exit code 0 from `run` means the scheduler accepted the request. With the optional cron backend, `run` executes the script locally with its registered working directory, runtime, PATH, and redirection, inherits the shell's other environment variables, and returns the script's exit code.
+- On systemd, launchd, and Windows, exit code 0 from `run` means the scheduler accepted the request. With the optional cron backend, `run` executes the script locally with its registered working directory, runtime, PATH, and redirection, inherits the shell's other environment variables, and returns the script's exit code. Cronly prints this environment notice to stderr.
 - `logs` prints the entire log, including stdout and stderr from prior runs. If the log file doesn't exist yet, it prints a notice to stderr and exits with 0. To verify a particular run, poll for a new timestamp or marker with a timeout. Read the log before `remove`. The existing file remains at the path printed by `add`.
 
 <a id="migration"></a>

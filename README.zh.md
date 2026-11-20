@@ -69,7 +69,7 @@ cronly remove --name weekend-report
 ## 在脚本和智能体中使用
 
 - 调用 `add`、`run`、`logs` 和 `remove` 时，请使用同一操作系统账户、调度器和任务名称。默认调度器由操作系统决定。手动选择时，每次调用都要将 `CRONLY_BACKEND` 设为 `systemd`、`launchd`、`windows` 或 `cron`。`cronly --lang en doctor` 用英语输出诊断结果，检查全部通过时返回 0，发现问题时返回 1。
-- 在 systemd、launchd 和 Windows 上，`run` 返回 0 表示调度器已接受执行请求。使用可选的 cron 后端时，CLI 按注册时的工作目录、运行时、PATH 和输出设置在本地执行脚本，其他环境变量继承自当前 shell，退出码取自脚本。
+- 在 systemd、launchd 和 Windows 上，`run` 返回 0 表示调度器已接受执行请求。使用可选的 cron 后端时，CLI 按注册时的工作目录、运行时、PATH 和输出设置在本地执行脚本，其他环境变量继承自当前 shell，退出码取自脚本。 Cronly 也会将这项环境提示写入标准错误。
 - `logs` 输出完整日志，包含历次运行的标准输出和标准错误。日志文件尚未创建时，会向标准错误输出提示并返回 0。要确认某次运行已完成，可设置超时并轮询新的时间戳或完成标记。在 `remove` 前可用命令查看日志，删除任务后已有日志文件仍保存在 `add` 显示的路径。
 
 <a id="migration"></a>

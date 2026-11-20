@@ -3232,6 +3232,8 @@ await testAsync('cron: run and logs use registered settings and preserve exit co
   assert.match(ctx.cli(['logs', file]).stderr, /No log file yet/)
   const result = ctx.cli(['run', '--name', 'report'], { CRONLY_HOME: join(ctx.dir, 'another-home') })
   assert.equal(result.status, 7, result.stderr)
+  assert.match(result.stderr, /current shell environment/)
+  assert.equal(result.stdout, '')
   assert.match(ctx.cli(['logs', file]).stdout, /stdout .*\nstderr\n/)
   writeFileSync(log, Buffer.alloc(256 * 1024, 97))
   assert.equal(ctx.cli(['logs', '--name', 'report']).stdout.length, 256 * 1024)
