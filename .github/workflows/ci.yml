@@ -78,5 +78,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
+      - name: Compare Script Host policy with wscript.exe in the disposable runner account
+        run: node test/windows-wsh-policy.mjs --disposable-account
       - name: Verify real Windows scheduled tasks
         run: npm run test:windows
