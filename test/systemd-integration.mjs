@@ -1,7 +1,7 @@
 // Run under a Linux systemd user manager. Only register the unique temporary script.
 import assert from 'assert/strict'
 import { execFileSync } from 'child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
@@ -45,7 +45,15 @@ try {
   while (existsSync(log) && !readFileSync(log, 'utf8').includes('timer fired') && Date.now() < deadline) await delay(100)
   assert.equal(readFileSync(log, 'utf8').trim(), dir + '\ntimer fired')
   run('doctor')
+  const timer = `cronly-${id}.timer`
+  const timerPath = execFileSync('systemctl', ['--user', 'show', '--property=FragmentPath', '--value', timer], { encoding: 'utf8' }).trim()
+  const installLink = join(dirname(timerPath), 'timers.target.wants', timer)
+  unlinkSync(timerPath)
+  run('add', file, '--reboot')
+  assert.ok(lstatSync(installLink).isSymbolicLink())
+  unlinkSync(timerPath)
   run('remove', '--id', id)
+  assert.throws(() => lstatSync(installLink), { code: 'ENOENT' })
   registered = false
   assert.ok(!run('list').includes(id))
   console.log('Linux default backend registered, ran, updated and removed a user timer.')

@@ -15,7 +15,7 @@ Upgrading a Linux machine with existing jobs? [Move your 1.x cron jobs to system
 
 | Platform | Required system components |
 | --- | --- |
-| Linux | systemd user manager, `systemctl --user`, and `/bin/sh` |
+| Linux | systemd 242+ user manager, `systemctl --user`, and `/bin/sh` |
 | macOS | GUI login session, `launchctl`, and the system `crontab` utility to check for older jobs |
 | Windows | Signed-in user, Task Scheduler service, and Windows PowerShell 5.1 |
 | Optional cron (Unix) | `crontab`, an active cron scheduler, and `/bin/sh` |
@@ -95,7 +95,7 @@ Upgrading the CLI leaves existing jobs in the user crontab. Keep cron installed 
 
    If the new registration fails, you can restore the cron job with `CRONLY_BACKEND=cron cronly add` using the settings you saved.
 
-3. Verify the registrations and next calendar runs. While legacy Cronly jobs remain, `doctor` reports them and exits with code 1. Before removing the cron package, check `crontab -l` and any other workloads on the machine that still use cron.
+3. Verify the registrations and next calendar runs. The systemd `doctor` lists remaining cron jobs as an informational notice. Before removing the cron package, check `crontab -l` and any other workloads on the machine that still use cron.
 
    ```bash
    CRONLY_BACKEND=systemd cronly list
@@ -128,6 +128,8 @@ For `--every-hours`, use **1, 2, 3, 4, 6, 8 or 12**. For `--every-minutes`, use 
 Run `systemctl --user list-timers --all` as the job owner to check that the session can reach the user manager. This also applies to SSH and CI sessions.
 
 Cronly writes `cronly-<id>.service` and `cronly-<id>.timer` in `~/.config/systemd/user/`, or under `$XDG_CONFIG_HOME/systemd/user/` when an absolute config path is set. Calendar timers start waiting for their next run as soon as you register them. A trigger is skipped if the previous run of that service is still active.
+
+If one of the two unit files is missing or edited, repeat the original `add` command to repair it, or use `cronly remove --id <id>` to remove it. Cronly preserves files whose ownership it cannot verify.
 
 A `--reboot` job first runs the **next time the user manager starts**. On a server where jobs must run from boot and continue after logout, enable lingering for the account with `loginctl enable-linger "$USER"`.
 

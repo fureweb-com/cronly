@@ -15,7 +15,7 @@ Cronly 使用 **Linux 的 systemd 用户定时器**、**macOS 的 launchd Launch
 
 | 平台 | 所需系统组件 |
 | --- | --- |
-| Linux | systemd 用户管理器、`systemctl --user`、`/bin/sh` |
+| Linux | systemd 242 或更高版本的用户管理器、`systemctl --user`、`/bin/sh` |
 | macOS | 图形登录会话、`launchctl`，以及检查旧任务所用的系统 `crontab` 命令 |
 | Windows | 已登录的用户会话、任务计划程序服务、Windows PowerShell 5.1 |
 | 可选 cron（Unix） | `crontab`、运行中的 cron 调度器、`/bin/sh` |
@@ -95,7 +95,7 @@ cronly remove --name weekend-report
 
    如果新任务注册失败，可用之前记录的设置，通过 `CRONLY_BACKEND=cron cronly add` 恢复 cron 任务。
 
-3. 检查已注册的任务和下次执行时间。只要 cron 中还留有旧的 Cronly 任务，`doctor` 就会提示并返回退出码 1。要卸载 cron 软件包，请先用 `crontab -l` 检查手动添加的任务，并确认机器上是否还有其他任务依赖 cron。
+3. 检查已注册的任务和下次执行时间。systemd 的 `doctor` 会列出 cron 中剩余的任务，供参考。要卸载 cron 软件包，请先用 `crontab -l` 检查手动添加的任务，并确认机器上是否还有其他任务依赖 cron。
 
    ```bash
    CRONLY_BACKEND=systemd cronly list
@@ -128,6 +128,8 @@ cronly remove --name weekend-report
 以任务所属的账户运行 `systemctl --user list-timers --all`，可以检查当前会话是否能连接用户管理器。在 SSH 或 CI 会话中也可这样检查。
 
 Cronly 为每个任务创建 `cronly-<id>.service` 和 `cronly-<id>.timer`。默认位置是 `~/.config/systemd/user/`，如果 `XDG_CONFIG_HOME` 设为绝对路径，则存放在 `$XDG_CONFIG_HOME/systemd/user/`。日历定时器注册后就开始等待下次执行。触发时，如果上一次启动的服务仍在运行，本次会跳过。
+
+如果其中一个单元文件缺失或已被修改，可重新执行原来的 `add` 命令修复，或用 `cronly remove --id <id>` 删除。Cronly 会保留无法确认归属的文件。
 
 `--reboot` 任务在**用户管理器下次启动时**首次运行。如果服务器需要在开机时就执行任务，并在用户退出后继续调度，可为该账户运行 `loginctl enable-linger "$USER"` 以启用 linger。
 
