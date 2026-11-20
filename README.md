@@ -129,7 +129,7 @@ Run `systemctl --user list-timers --all` as the job owner to check that the sess
 
 Cronly writes `cronly-<id>.service` and `cronly-<id>.timer` in `~/.config/systemd/user/`, or under `$XDG_CONFIG_HOME/systemd/user/` when an absolute config path is set. Calendar timers start waiting for their next run as soon as you register them. A trigger is skipped if the previous run of that service is still active.
 
-If one of the two unit files is missing or edited, repeat the original `add` command to repair it, or use `cronly remove --id <id>` to remove it. Cronly preserves files whose ownership it cannot verify. When one original unit remains, `logs` and `remove` can still select a new registration by name or script path. For older ID-only timers, use the ID shown by `list`.
+If one of the two unit files is missing or edited, repeat the original `add` command to repair it, or use `cronly remove --id <id>` to remove it. Cronly preserves files whose ownership it cannot verify. If one original unit remains, `logs` and `remove` can still find the job by name or script path.
 
 A `--reboot` job first runs the **next time the user manager starts**. On a server where jobs must run from boot and continue after logout, enable lingering for the account with `loginctl enable-linger "$USER"`.
 
@@ -141,7 +141,7 @@ Each job has a `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` file and r
 
 Cronly registers tasks for the current user. The user must be signed in for tasks to run. `--reboot` runs at the next login. JavaScript uses Node.js and native `.exe` files run directly. Select another installed interpreter with `--runtime`.
 
-New tasks run without a console window and report the script’s exit code. Cronly keeps the shared launcher at `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js`. Repeat `add` to update a previously registered task. If policy disables Windows Script Host, `add` stops before registration and `doctor` names the registry setting.
+Tasks run without a console window and report the script’s exit code. Cronly keeps the shared launcher at `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js`. If policy disables Windows Script Host, `add` stops before registration and `doctor` names the registry setting.
 
 PowerShell checks its execution policy when a scheduled `.ps1` runs. Under `Restricted`, registration can succeed and the scheduled script can still log `UnauthorizedAccess`. The JavaScript example works under that policy. [Windows PowerShell execution policies](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
 

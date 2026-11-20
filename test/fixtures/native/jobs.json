@@ -20,6 +20,7 @@
     "runtimePath": "C:\\Program Files\\nodejs\\node.exe",
     "args": ["C:\\Jobs\\report & 100%.cjs"],
     "nodePath": "C:\\Program Files\\nodejs\\node.exe",
-    "logPath": "C:\\Logs\\e6213c6f.log"
+    "logPath": "C:\\Logs\\e6213c6f.log",
+    "launcher": "wscript-v1"
   }
 }

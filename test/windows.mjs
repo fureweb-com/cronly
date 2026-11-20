@@ -9,7 +9,7 @@ import { getBackend } from '../lib/backend.mjs'
 import { add, doctor, list, logs, print, remove, run } from '../lib/commands.mjs'
 import { schedulerLockPath } from '../lib/lock.mjs'
 import { windowsRuntime } from '../lib/windows.mjs'
-import { launcherPath, scriptHostPath, windowsAction, windowsLauncher, windowsTriggers, windowsTaskXml } from '../lib/windows-task.mjs'
+import { launcherPath, scriptHostPath, windowsAction, windowsLauncher, windowsRunner, windowsTriggers, windowsTaskXml } from '../lib/windows-task.mjs'
 
 export async function runWindowsTests({ test, testAsync, captureLogs, withPatchedVersion }) {
   test('Windows: defaults and exact calendar triggers', () => {
@@ -94,8 +94,8 @@ export async function runWindowsTests({ test, testAsync, captureLogs, withPatche
       assert.ok((await captured(list)).logs[0].includes(file))
       assert.match((await captured(print)).logs[0], /&amp;.*&lt;sample&gt;/)
       const runAction = data => {
-        const [, src, payload] = /^-e "(.+)" -- (\S+)$/.exec(windowsAction(data))
-        return spawnSync(process.execPath, ['-e', src, '--', payload]).status
+        const payload = windowsAction(data).split(' ').pop()
+        return spawnSync(process.execPath, ['-e', windowsRunner, '--', payload]).status
       }
       assert.match(windowsAction({ ...job, nodePath: 'C:\\%TEMP%\\node.exe' }), /C:\\\|TEMP\|\\node.exe/)
       assert.match(entry.xml, /wscript.exe/)
@@ -125,18 +125,9 @@ export async function runWindowsTests({ test, testAsync, captureLogs, withPatche
       rmSync(launcher)
       assert.equal((await captured(doctor)).result, false)
       await captured(register)
-      const legacy = { ...job }
-      delete legacy.launcher
-      const oldXml = windowsTaskXml(legacy, 'S-1-5-21-1234')
-      write([{ ...entry, metadata: JSON.stringify(legacy), xml: oldXml }])
-      writeFileSync(state + '.policy', 'HKEY_CURRENT_USER')
-      assert.equal((await captured(() => run(file, {}))).result, 0)
-      rmSync(state + '.policy')
-      assert.equal((await captured(doctor)).result, true)
-      write([entry])
-      assert.equal(runAction(legacy), 7)
+      assert.equal(runAction(job), 7)
       assert.match(readFileSync(job.logPath, 'utf8'), /from script cwd\nstderr/)
-      assert.equal(runAction({ ...legacy, runtimePath: join(dir, 'not found') }), 1)
+      assert.equal(runAction({ ...job, runtimePath: join(dir, 'not found') }), 1)
       assert.match(readFileSync(job.logPath, 'utf8'), /ENOENT/)
       const alias = join(dir, 'alias.mjs')
       symlinkSync(file, alias)
@@ -162,7 +153,7 @@ export async function runWindowsTests({ test, testAsync, captureLogs, withPatche
       write([entry, { ...entry, id: 'f00df00d', metadata: JSON.stringify({ ...job, id: 'f00df00d' }) }])
       await assert.rejects(register, /Multiple Windows tasks/)
       for (const override of [{ source: 'other' }, { metadata: 'null' }, ...[
-        { backend: 'cron' }, { name: 'incorrect' }, { id: 'different' }, { path: 'relative' }, { runtime: null }, { schedule: null },
+        { backend: 'cron' }, { name: 'incorrect' }, { id: 'different' }, { launcher: undefined }, { path: 'relative' }, { runtime: null }, { schedule: null },
       ].map(overrides => ({ metadata: JSON.stringify({ ...job, ...overrides }) }))]) {
         write([{ ...entry, ...override }])
         assert.match((await captured(list)).logs[0], /Cannot manage Windows task/)

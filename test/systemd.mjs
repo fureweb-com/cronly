@@ -217,21 +217,14 @@ export async function runSystemdTests({ test, testAsync, captureLogs, withPatche
     await captureLogs(register)
   }))
 
-  await testAsync('systemd: update a v1 pair and remove an old ID-only orphan', () => sandbox(async ctx => {
-    const register = () => add(ctx.file, { schedule: '@daily' })
-    await captureLogs(register)
-    const [{ raw, ...job }] = readSystemdEntries()
-    const legacy = buildSystemdUnits(job, 1)
-    writeFileSync(ctx.service, legacy.service)
-    writeFileSync(ctx.timer, legacy.timer)
-    assert.equal(readSystemdEntries()[0].invalid, undefined)
-    await captureLogs(register)
-    assert.deepEqual(readSystemdEntries()[0].raw, raw)
-    writeFileSync(ctx.timer, legacy.timer)
-    unlinkSync(ctx.service)
-    assert.equal(readSystemdEntries()[0].invalid, true)
-    await captureLogs(() => remove(undefined, { id: ctx.id }))
-    assert.deepEqual(readSystemdEntries(), [])
+  await testAsync('systemd: preserve a timer without verifiable job metadata', () => sandbox(async ctx => {
+    mkdirSync(ctx.unitDir, { recursive: true })
+    const timer = `# cronly-v1 ${ctx.id}\n[Timer]\nOnStartupSec=0\n`
+    writeFileSync(ctx.timer, timer)
+    await assert.rejects(() => add(ctx.file, { schedule: '@daily' }), /modified unit pair/)
+    await assert.rejects(() => remove(undefined, { id: ctx.id }), /modified unit pair/)
+    assert.equal(readFileSync(ctx.timer, 'utf8'), timer)
+    assert.equal(existsSync(ctx.service), false)
   }))
 
   await testAsync('systemd: reject unloadable units and report session requirements', () => sandbox(async ctx => {

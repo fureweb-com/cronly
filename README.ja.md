@@ -129,7 +129,7 @@ CLI をアップグレードしても、登録済みのジョブはユーザー�
 
 ジョブごとに `cronly-<id>.service` と `cronly-<id>.timer` を作成します。保存先は `~/.config/systemd/user/` で、`XDG_CONFIG_HOME` に絶対パスを設定した場合は `$XDG_CONFIG_HOME/systemd/user/` です。カレンダータイマーは登録と同時に次の実行を待ちます。その時刻に前回のサービスがまだ動いていれば、その回はスキップします。
 
-ユニットファイルの片方が欠けている、または変更された場合は、元の `add` コマンドで修復するか、`cronly remove --id <id>` で削除できます。所有元を確認できないファイルは保持されます。 新しい登録では、元のユニットが片方だけ残っていても、名前またはスクリプトのパスでログを表示したり登録を削除したりできます。ID だけを持つ以前のタイマーには `list` に表示された ID を指定してください。
+ユニットファイルの片方が欠けている、または変更された場合は、元の `add` コマンドで修復するか、`cronly remove --id <id>` で削除できます。所有元を確認できないファイルは保持されます。元のユニットが片方だけ残っていても、名前またはスクリプトのパスでログを表示したり登録を削除したりできます。
 
 `--reboot` ジョブの初回実行は **次にユーザーマネージャーが起動したとき** です。サーバーの起動時からログアウト後もジョブを動かすには、対象のアカウントで `loginctl enable-linger "$USER"` を実行して linger を有効にします。
 
@@ -141,7 +141,7 @@ CLI をアップグレードしても、登録済みのジョブはユーザー�
 
 タスクは登録したユーザーのログイン中に実行されます。`--reboot` は次回のログイン時に実行されます。JavaScript は Node.js で起動し、`.exe` は直接実行します。別のインタープリターはインストール後に `--runtime` で指定できます。
 
-新しく登録したタスクはコンソールを表示せず、スクリプトの終了コードを返します。共通のランチャーは `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js` に保存されます。既存タスクには `add` を再実行して適用します。 ポリシーで Windows Script Host が無効な場合、`add` は登録前に停止し、`doctor` は該当するレジストリ設定を表示します。
+タスクはコンソールを表示せず、スクリプトの終了コードを返します。共通のランチャーは `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js` に保存されます。ポリシーで Windows Script Host が無効な場合、`add` は登録前に停止し、`doctor` は該当するレジストリ設定を表示します。
 
 PowerShell は、予約した `.ps1` の実行時に実行ポリシーを適用します。`Restricted` の場合、タスクの登録に成功しても実行がブロックされ、ログに `UnauthorizedAccess` が記録されることがあります。上の JavaScript の例はこのポリシーでも動作します。[Windows PowerShell の実行ポリシー](https://learn.microsoft.com/ja-jp/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
 
