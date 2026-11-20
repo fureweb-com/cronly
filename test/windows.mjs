@@ -48,20 +48,6 @@ export async function runWindowsTests({ test, testAsync, captureLogs, withPatche
       writeFileSync(file, "console.log(require('fs').readFileSync('input','utf8')); console.error('stderr'); process.exitCode=7")
       writeFileSync(join(dir, 'input'), 'from script cwd')
       write([])
-      for (const [reply, message] of [
-        [{ first: 'invalid JSON' }, /^Windows Task Scheduler: .+/],
-        [{ first: 'invalid JSON', stderr: 'Cannot read tasks\n' }, /^Windows Task Scheduler: Cannot read tasks$/],
-        [{ last: '' }, /^Windows Task Scheduler: .+/],
-        [{ last: 'invalid JSON', stderr: 'Cannot verify tasks\n' }, /^Windows Task Scheduler: Cannot verify tasks$/],
-        [{ last: 'null' }, /^Windows Task Scheduler: Expected a list of changed task IDs from PowerShell\.$/],
-      ]) {
-        writeFileSync(state + '.malformed', JSON.stringify(reply))
-        await assert.rejects(list, { message })
-        const report = await captured(doctor)
-        assert.equal(report.result, false)
-        assert.ok(report.logs.some(line => message.test(line)))
-      }
-      rmSync(state + '.malformed')
       await assert.rejects(register, /wscript.exe/)
       assert.equal((await captured(doctor)).result, false)
       writeFileSync(scriptHostPath(), '')
@@ -84,6 +70,20 @@ export async function runWindowsTests({ test, testAsync, captureLogs, withPatche
       await captured(register)
       const [entry] = read()
       const job = JSON.parse(entry.metadata)
+      for (const [reply, message] of [
+        [{ first: 'invalid JSON' }, /^Windows Task Scheduler: .*JSON/],
+        [{ first: 'invalid JSON', stderr: 'Cannot read tasks\n' }, /^Windows Task Scheduler: Cannot read tasks$/],
+        [{ last: '' }, /^Windows Task Scheduler: .+/],
+        [{ last: 'invalid JSON', stderr: 'Cannot verify tasks\n' }, /^Windows Task Scheduler: Cannot verify tasks$/],
+        [{ last: 'null' }, /^Windows Task Scheduler: Expected a list of changed task IDs from PowerShell\.$/],
+      ]) {
+        writeFileSync(state + '.malformed', JSON.stringify(reply))
+        await assert.rejects(list, { message })
+        const report = await captured(doctor)
+        assert.equal(report.result, false)
+        assert.ok(report.logs.some(line => message.test(line)))
+      }
+      rmSync(state + '.malformed')
       writeFileSync(job.logPath, 'earlier output\n')
       writeFileSync(state + '.ops', '')
       await captured(list)

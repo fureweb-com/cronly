@@ -5,6 +5,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { makeId } from '../lib/entry.mjs'
+import { runScheduler } from '../lib/native-scheduler.mjs'
 
 if (process.platform !== 'win32') throw new Error('Run this integration test in a Windows login session.')
 const dir = mkdtempSync(join(tmpdir(), 'cronly-windows-'))
@@ -13,6 +14,7 @@ const id = makeId(file)
 const env = { ...process.env, CRONLY_LANG: 'en', CRONLY_HOME: join(dir, 'logs %TEMP% & 한글') }
 delete env.CRONLY_BACKEND
 const cli = fileURLToPath(new URL('../bin/cronly.mjs', import.meta.url))
+const bridge = readFileSync(new URL('../lib/windows-tasks.ps1', import.meta.url), 'utf8')
 const run = (...args) => execFileSync(process.execPath, [cli, ...args], { env, encoding: 'utf8' })
 const log = join(env.CRONLY_HOME, 'logs', id + '.log')
 const account = execFileSync('whoami.exe', ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8' })
@@ -25,11 +27,10 @@ function checkScriptHostPolicy() {
   // disposable HKCU subkey so the account's actual Script Host policy stays in effect.
   const subkey = 'Software\\Cronly-WSH-test-' + id
   const key = 'HKCU\\' + subkey
-  const bridge = readFileSync(new URL('../lib/windows-tasks.ps1', import.meta.url), 'utf8')
-    .replace('SOFTWARE\\Microsoft\\Windows Script Host\\Settings', subkey)
+  const probeBridge = bridge.replace('SOFTWARE\\Microsoft\\Windows Script Host\\Settings', subkey)
   const probe = (checkScriptHost = true) => {
     const request = JSON.stringify({ op: 'list', checkScriptHost }) + '\n{}'
-    const response = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', bridge], { input: request, encoding: 'utf8' })
+    const response = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', probeBridge], { input: request, encoding: 'utf8' })
     return JSON.parse(response.split('\n')[0]).blockedBy
   }
   const view = /64/.test(process.env.PROCESSOR_ARCHITEW6432 || process.env.PROCESSOR_ARCHITECTURE) ? '/reg:64' : '/reg:32'
@@ -46,6 +47,17 @@ function checkScriptHostPolicy() {
   }
 }
 
+async function checkRejectedListing() {
+  const reason = 'Could not build the verification reply'
+  const args = ['-NoProfile', '-NonInteractive', '-Command', bridge]
+  const result = await runScheduler('powershell.exe', args, undefined, JSON.stringify({ op: 'list' }), line => {
+    assert.ok(JSON.parse(line).entries.some(entry => entry.id === id))
+    throw new Error(reason)
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.detail, reason)
+}
+
 let registered = false
 try {
   checkScriptHostPolicy()
@@ -53,6 +65,7 @@ try {
   writeFileSync(join(dir, 'message.txt'), 'scheduled 한글')
   run('add', file, '--reboot')
   registered = true
+  await checkRejectedListing()
   assert.match(run('print'), /<LogonTrigger>/)
   assert.ok(run('list').includes(file))
   run('add', file, '--weekdays', '--at', '09:00')

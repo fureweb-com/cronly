@@ -12,12 +12,10 @@ async function main() {
   if (req.op === 'list') {
     const malformed = fs.existsSync(file + '.malformed') ? JSON.parse(fs.readFileSync(file + '.malformed', 'utf8')) : {}
     if (malformed.stderr) process.stderr.write(malformed.stderr)
-    if (malformed.first !== undefined) {
-      process.stdout.write(malformed.first + '\r\n')
-      return
-    }
-    process.stdout.write(JSON.stringify({ sid: 'S-1-5-21-1234', entries, blockedBy }) + '\r\n')
-    const expected = JSON.parse((await lines.next()).value)
+    const listing = malformed.first ?? JSON.stringify({ sid: 'S-1-5-21-1234', entries, blockedBy })
+    process.stdout.write(listing + '\r\n')
+    // Like PowerShell, continue to verification on EOF with no definitions.
+    const expected = JSON.parse((await lines.next()).value ?? 'null')
     const changed = entries.filter(entry => expected[entry.id] && expected[entry.id] !== entry.xml)
     process.stdout.write(malformed.last !== undefined ? malformed.last : JSON.stringify(changed.map(entry => entry.id)))
     return
