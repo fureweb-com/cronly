@@ -1,6 +1,6 @@
 import { checkNamedJobs } from './named-jobs.mjs'
 import assert from 'assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { add, doctor, list, print, remove, run } from '../lib/commands.mjs'
@@ -154,10 +154,10 @@ export async function runSystemdTests({ test, testAsync, captureLogs, withPatche
     const link = join(wants, `cronly-${ctx.id}.timer`)
     symlinkSync(ctx.file, link)
     await assert.rejects(register, /Cannot manage/)
-    rmSync(link)
+    unlinkSync(link)
     writeFileSync(link, '')
     await assert.rejects(register, /Cannot manage/)
-    rmSync(link)
+    unlinkSync(link)
     symlinkSync(ctx.timer, link)
     await captureLogs(register)
     const edited = Buffer.concat([readFileSync(ctx.service), Buffer.from([0xff])])
@@ -176,7 +176,8 @@ export async function runSystemdTests({ test, testAsync, captureLogs, withPatche
     await captureLogs(register)
     rmSync(ctx.timer)
     ctx.properties('ActiveState=inactive\nUnitFileState=disabled')
-    rmSync(link)
+    unlinkSync(link)
+    assert.throws(() => lstatSync(link), { code: 'ENOENT' })
     ctx.fail('disable')
     await assert.rejects(register, /simulated disable failure/)
     assert.equal(existsSync(ctx.timer), false)
