@@ -10,11 +10,11 @@ if (process.platform !== 'win32') throw new Error('Run this integration test in 
 const dir = mkdtempSync(join(tmpdir(), 'cronly-windows-'))
 const file = join(dir, "한글 & '%TEMP%' report.cjs")
 const id = makeId(file)
-const env = { ...process.env, CRONLY_LANG: 'en', CRONLY_HOME: dir }
+const env = { ...process.env, CRONLY_LANG: 'en', CRONLY_HOME: join(dir, 'logs %TEMP% & 한글') }
 delete env.CRONLY_BACKEND
 const cli = fileURLToPath(new URL('../bin/cronly.mjs', import.meta.url))
 const run = (...args) => execFileSync(process.execPath, [cli, ...args], { env, encoding: 'utf8' })
-const log = join(dir, 'logs', id + '.log')
+const log = join(env.CRONLY_HOME, 'logs', id + '.log')
 const account = execFileSync('whoami.exe', ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8' })
 const sid = account.match(/S-1-[0-9-]+/)[0]
 const nativeName = jobId => 'Cronly-' + sid + '-' + jobId
@@ -48,6 +48,17 @@ try {
   assert.match(readFileSync(log, 'utf8'), /scheduled 한글\r?\nstderr works/)
   run('doctor')
   run('add', file, '--reboot')
+  writeFileSync(file, "console.error('deliberate failure'); process.exitCode=7")
+  run('run', '--id', id)
+  const checkResult = "$s=New-Object -ComObject Schedule.Service;$s.Connect();$s.GetFolder('\\').GetTask($env:CRONLY_TEST_TASK).LastTaskResult"
+  const deadlineForResult = Date.now() + 30000
+  let result
+  do {
+    await delay(250)
+    result = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', checkResult], { env: { ...env, CRONLY_TEST_TASK: nativeName(id) }, encoding: 'utf8' }).trim()
+  } while (result !== '7' && Date.now() < deadlineForResult)
+  assert.equal(result, '7')
+  assert.match(run('logs', '--id', id), /deliberate failure/)
   // Edit our disposable task independently of Cronly, as Task Scheduler's GUI would.
   const edit = [
     "$ErrorActionPreference='Stop'",
@@ -67,7 +78,7 @@ try {
   const psFile = join(dir, 'hello world.ps1')
   const psName = 'ps-' + id
   const psId = makeId(psFile, psName)
-  const psLog = join(dir, 'logs', psId + '.log')
+  const psLog = join(env.CRONLY_HOME, 'logs', psId + '.log')
   writeFileSync(psFile, "Write-Output 'PowerShell works'")
   run('add', psFile, '--name', psName, '--reboot')
   try {

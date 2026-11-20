@@ -17,7 +17,7 @@ Cronly 使用 **Linux 的 systemd 用户定时器**、**macOS 的 launchd Launch
 | --- | --- |
 | Linux | systemd 242 或更高版本的用户管理器、`systemctl --user`、`/bin/sh` |
 | macOS | 图形登录会话、`launchctl`，以及检查旧任务所用的系统 `crontab` 命令 |
-| Windows | 已登录的用户会话、任务计划程序服务、Windows PowerShell 5.1 |
+| Windows | 已登录的用户会话、任务计划程序服务、Windows PowerShell 5.1、Windows Script Host（JScript） |
 | 可选 cron（Unix） | `crontab`、运行中的 cron 调度器、`/bin/sh` |
 
 ## 安装并注册第一个任务
@@ -140,6 +140,8 @@ Cronly 为每个任务创建 `cronly-<id>.service` 和 `cronly-<id>.timer`。默
 ### Windows · 任务计划程序
 
 任务在注册用户登录期间运行。`--reboot` 在下次登录时执行。JavaScript 使用 Node.js，`.exe` 直接执行。其他已安装的解释器可以通过 `--runtime` 指定。
+
+新注册的任务在后台运行，不弹出控制台窗口，并返回脚本的退出码。共享启动脚本保存在 `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js`。重新执行 `add` 即可更新已注册的任务。
 
 PowerShell 会在执行计划中的 `.ps1` 时应用执行策略。策略为 `Restricted` 时，即使任务注册成功，脚本也会被阻止运行，日志中可能出现 `UnauthorizedAccess`。前面的 JavaScript 示例在此策略下也能运行。[Windows PowerShell 执行策略](https://learn.microsoft.com/zh-cn/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
 

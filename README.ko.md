@@ -17,7 +17,7 @@ Linux에서 이미 작업을 예약해 두었다면 [1.x cron 작업을 systemd�
 | --- | --- |
 | Linux | systemd 242 이상 사용자 관리자, `systemctl --user`, `/bin/sh` |
 | macOS | GUI 로그인 세션, `launchctl`, 기존 작업 조회용 기본 `crontab` 명령 |
-| Windows | 로그인한 사용자 세션, 작업 스케줄러 서비스, Windows PowerShell 5.1 |
+| Windows | 로그인한 사용자 세션, 작업 스케줄러 서비스, Windows PowerShell 5.1, Windows Script Host(JScript) |
 | cron 선택 시(Unix) | `crontab`, 실행 중인 cron 스케줄러, `/bin/sh` |
 
 ## 설치하고 첫 작업 등록하기
@@ -140,6 +140,8 @@ CLI를 업그레이드해도 기존 작업은 사용자 crontab에 남아요. �
 ### Windows · 작업 스케줄러
 
 작업은 등록한 사용자가 로그인한 동안 실행돼요. `--reboot` 작업은 다음 로그인 때 실행돼요. JavaScript는 Node.js로, `.exe`는 직접 실행해요. 다른 인터프리터는 설치한 뒤 `--runtime`으로 지정할 수 있어요.
+
+새로 등록한 작업은 콘솔 창 없이 실행되고 스크립트의 종료 코드를 반환해요. 공용 실행기는 `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js`에 저장돼요. 기존 작업에는 `add`를 다시 실행하면 적용돼요.
 
 PowerShell은 예약된 `.ps1`을 실행할 때 실행 정책을 적용해요. `Restricted`에서는 등록에 성공해도 실제 실행이 차단되어 로그에 `UnauthorizedAccess`가 기록될 수 있어요. 위 JavaScript 예제는 이 정책에서도 실행돼요. [Windows PowerShell 실행 정책](https://learn.microsoft.com/ko-kr/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
 

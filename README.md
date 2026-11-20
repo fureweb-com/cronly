@@ -17,7 +17,7 @@ Upgrading a Linux machine with existing jobs? [Move your 1.x cron jobs to system
 | --- | --- |
 | Linux | systemd 242+ user manager, `systemctl --user`, and `/bin/sh` |
 | macOS | GUI login session, `launchctl`, and the system `crontab` utility to check for older jobs |
-| Windows | Signed-in user, Task Scheduler service, and Windows PowerShell 5.1 |
+| Windows | Signed-in user, Task Scheduler, Windows PowerShell 5.1, and Windows Script Host (JScript) |
 | Optional cron (Unix) | `crontab`, an active cron scheduler, and `/bin/sh` |
 
 ## Install and schedule your first job
@@ -140,6 +140,8 @@ Each job has a `~/Library/LaunchAgents/com.fureweb.cronly.<id>.plist` file and r
 ### Windows · Task Scheduler
 
 Cronly registers tasks for the current user. The user must be signed in for tasks to run. `--reboot` runs at the next login. JavaScript uses Node.js and native `.exe` files run directly. Select another installed interpreter with `--runtime`.
+
+New tasks run without a console window and report the script’s exit code. Cronly keeps the shared launcher at `%LOCALAPPDATA%\Cronly\windows-launcher-v1.js`. Repeat `add` to update a previously registered task.
 
 PowerShell checks its execution policy when a scheduled `.ps1` runs. Under `Restricted`, registration can succeed and the scheduled script can still log `UnauthorizedAccess`. The JavaScript example works under that policy. [Windows PowerShell execution policies](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
 
